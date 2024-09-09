@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
+using System;
 using UnityEngine;
 
 public class Script_CollectibleCount : MonoBehaviour
 {
+    public static event Action CollectionComplete;
     TMPro.TMP_Text text;
     int count;
 
@@ -24,6 +26,10 @@ public class Script_CollectibleCount : MonoBehaviour
     {
         count++;
         UpdateCount();
+        if(Script_Collectible.total == count)
+        {
+            CollectionComplete?.Invoke();
+        }
     }
 
     void UpdateCount()
