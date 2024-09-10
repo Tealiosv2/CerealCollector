@@ -32,6 +32,8 @@ public class Script_CollectibleCount : MonoBehaviour
         }
     }
 
+
+
     void UpdateCount()
     {
         text.text = $"{count} / {Script_Collectible.total}";
