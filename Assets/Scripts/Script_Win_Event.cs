@@ -5,11 +5,12 @@ using UnityEngine;
 
 public class Script_Win_Event : MonoBehaviour
 {
+    public Script_LevelLoader levelLoader;
     void OnEnable() => Script_CollectibleCount.CollectionComplete += WinScreen;
     private void OnDisable() => Script_CollectibleCount.CollectionComplete -= WinScreen;
 
     void WinScreen()
     {
-        
+        levelLoader.LoadNextLevel();
     }
 }
