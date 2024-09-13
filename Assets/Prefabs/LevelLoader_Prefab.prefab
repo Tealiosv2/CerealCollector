@@ -135,7 +135,7 @@ GameObject:
   - component: {fileID: 2076310348927169970}
   - component: {fileID: 7512857943829324901}
   m_Layer: 0
-  m_Name: LevelLoader
+  m_Name: LevelLoader_Prefab
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
