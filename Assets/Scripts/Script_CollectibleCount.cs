@@ -19,14 +19,14 @@ public class Script_CollectibleCount : MonoBehaviour
         UpdateCount();
     }
 
-    void OnEnable() => Script_Collectible.OnCollected += OnCollectibleCollected;
-    private void OnDisable() => Script_Collectible.OnCollected -= OnCollectibleCollected;
+    void OnEnable() => Script_MeatLoop.OnCollected += OnCollectibleCollected;
+    private void OnDisable() => Script_MeatLoop.OnCollected -= OnCollectibleCollected;
 
     void OnCollectibleCollected()
     {
         count++;
         UpdateCount();
-        if(Script_Collectible.total == count)
+        if(Script_MeatLoop.total == count)
         {
             CollectionComplete?.Invoke();
         }
@@ -36,6 +36,6 @@ public class Script_CollectibleCount : MonoBehaviour
 
     void UpdateCount()
     {
-        text.text = $"{count} / {Script_Collectible.total}";
+        text.text = $"{count} / {Script_MeatLoop.total}";
     }
 }
