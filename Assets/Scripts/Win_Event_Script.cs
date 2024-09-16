@@ -11,6 +11,8 @@ public class Script_Win_Event : MonoBehaviour
 
     void WinScreen()
     {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
         levelLoader.LoadNextLevel();
     }
 }
