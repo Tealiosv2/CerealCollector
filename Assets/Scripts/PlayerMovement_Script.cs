@@ -28,6 +28,8 @@ public class PlayerMovement2_Script : MonoBehaviour
         jump = inputActions.Player.Jump;
         movement.Enable();
         jump.Enable();
+
+        jump.performed += DoJump;
     }
     private void OnDisable()
     {
@@ -41,23 +43,22 @@ public class PlayerMovement2_Script : MonoBehaviour
             velocity.y = -2f;
         }
 
-        //change this input
-        //float x = Input.GetAxis("Horizontal");
-        //float z = Input.GetAxis("Vertical");
         Vector2 v2 = movement.ReadValue<Vector2>();
 
         Vector3 move = transform.right * v2.x + transform.forward * v2.y;
 
         controller.Move(move * speed * Time.deltaTime);
 
-        //change the input
-        if(jump.triggered && isGrounded){
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
-
         velocity.y += gravity * Time.deltaTime;
 
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    private void DoJump(InputAction.CallbackContext obj)
+    {
+        if(isGrounded){
+            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+        }
     }
 
 }
