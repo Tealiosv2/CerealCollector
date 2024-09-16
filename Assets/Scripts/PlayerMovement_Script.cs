@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-
+using UnityEngine.InputSystem;
 public class PlayerMovement2_Script : MonoBehaviour
 {
     public float speed = 12f;
@@ -12,11 +12,29 @@ public class PlayerMovement2_Script : MonoBehaviour
     public float jumpHeight = 3f;
     public LayerMask groundMask;
 
+    private Player_InputActions inputActions;
+    private InputAction movement;
+    private InputAction jump;
     bool isGrounded;
     Vector3 velocity;
     public CharacterController controller;
 
-    void Update()
+    private void Awake(){
+        inputActions = new Player_InputActions();
+    }
+    private void OnEnable()
+    {
+        movement = inputActions.Player.Movement;
+        jump = inputActions.Player.Jump;
+        movement.Enable();
+        jump.Enable();
+    }
+    private void OnDisable()
+    {
+        movement.Disable();
+        jump.Disable();
+    }
+    void FixedUpdate()
     {
         isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
         if (isGrounded && velocity.y < 0){
@@ -24,15 +42,16 @@ public class PlayerMovement2_Script : MonoBehaviour
         }
 
         //change this input
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
+        //float x = Input.GetAxis("Horizontal");
+        //float z = Input.GetAxis("Vertical");
+        Vector2 v2 = movement.ReadValue<Vector2>();
 
-        Vector3 move = transform.right * x + transform.forward * z;
+        Vector3 move = transform.right * v2.x + transform.forward * v2.y;
 
         controller.Move(move * speed * Time.deltaTime);
 
         //change the input
-        if(Input.GetButtonDown("Jump") && isGrounded){
+        if(jump.triggered && isGrounded){
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
 
