@@ -1290,6 +1290,11 @@ PrefabInstance:
       propertyPath: transition
       value: 
       objectReference: {fileID: 2128672479}
+    - target: {fileID: 7512857943829324901, guid: 9484509c8c71ab1468b8c9e06d8932b6,
+        type: 3}
+      propertyPath: transitionTime
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
