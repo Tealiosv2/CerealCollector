@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class Script_MainMenu : MonoBehaviour
+public class MainMenu_Script : MonoBehaviour
     
 {
-    public Script_LevelLoader levelLoader;
+    public LevelLoader_Script levelLoader;
     public void PlayGame()
     {
         levelLoader.LoadNextLevel();

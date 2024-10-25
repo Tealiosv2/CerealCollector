@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System;
 using UnityEngine;
 
-public class Script_CollectibleCount : MonoBehaviour
+public class CollectibleCounter_Script : MonoBehaviour
 {
     public static event Action CollectionComplete;
     TMPro.TMP_Text text;
@@ -19,14 +19,14 @@ public class Script_CollectibleCount : MonoBehaviour
         UpdateCount();
     }
 
-    void OnEnable() => Script_MeatLoop.OnCollected += OnCollectibleCollected;
-    private void OnDisable() => Script_MeatLoop.OnCollected -= OnCollectibleCollected;
+    void OnEnable() => Collectible_Script.OnCollected += OnCollectibleCollected;
+    private void OnDisable() => Collectible_Script.OnCollected -= OnCollectibleCollected;
 
     void OnCollectibleCollected()
     {
         count++;
         UpdateCount();
-        if(Script_MeatLoop.total == count)
+        if(Collectible_Script.total == count)
         {
             CollectionComplete?.Invoke();
         }
@@ -36,6 +36,6 @@ public class Script_CollectibleCount : MonoBehaviour
 
     void UpdateCount()
     {
-        text.text = $"{count} / {Script_MeatLoop.total}";
+        text.text = $"{count} / {Collectible_Script.total}";
     }
 }

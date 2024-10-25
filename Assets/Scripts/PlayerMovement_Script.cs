@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
-public class PlayerMovement2_Script : MonoBehaviour
+public class PlayerMovement_Script : MonoBehaviour
 {
     public float speed = 12f;
     public float gravity = -9.81f;

@@ -3,11 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Script_Win_Event : MonoBehaviour
+public class Win_Event_Script : MonoBehaviour
 {
-    public Script_LevelLoader levelLoader;
-    void OnEnable() => Script_CollectibleCount.CollectionComplete += WinScreen;
-    private void OnDisable() => Script_CollectibleCount.CollectionComplete -= WinScreen;
+    public LevelLoader_Script levelLoader;
+    void OnEnable() => CollectibleCounter_Script.CollectionComplete += WinScreen;
+    private void OnDisable() => CollectibleCounter_Script.CollectionComplete -= WinScreen;
 
     void WinScreen()
     {

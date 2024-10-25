@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class Script_LevelLoader : MonoBehaviour
+public class LevelLoader_Script : MonoBehaviour
 {
     public Animator transition;
     public float transitionTime = 3f;

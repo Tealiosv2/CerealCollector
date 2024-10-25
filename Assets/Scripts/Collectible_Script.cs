@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-public class Script_MeatLoop : MonoBehaviour
+public class Collectible_Script : MonoBehaviour
 {
     public static event Action OnCollected;
     public static int total;

@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class MouseLook_Script : MonoBehaviour
+public class PlayerLook_Script : MonoBehaviour
 {
     public Transform playerBody;
     float xRotation = 0f;

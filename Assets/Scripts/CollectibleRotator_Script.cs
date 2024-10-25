@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Rotator : MonoBehaviour
+public class CollectibleRotator_Script : MonoBehaviour
 {
     private void Update()
     {
