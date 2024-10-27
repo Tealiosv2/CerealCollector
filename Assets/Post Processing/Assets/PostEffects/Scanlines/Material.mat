@@ -33,7 +33,7 @@ Material:
     - _Glossiness: 0.5
     - _Grayscale: 0
     - _Metallic: 0
-    - _Noise: 0.29
+    - _Noise: 0.68
     - _Speed: 0
     - _Strength: 0.25
     m_Colors:

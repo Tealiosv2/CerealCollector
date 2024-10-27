@@ -1,5 +1,11 @@
 {
   "dependencies": {
+    "com.glairedaggers.retrotvfx": {
+      "version": "file:C:/Users/thean/Downloads/CerealBox/RetroTVFX-2.0.0",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.burst": {
       "version": "1.8.15",
       "depth": 1,

@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-8150426838024775164
+--- !u!114 &-8748324964502253465
 MonoBehaviour:
   m_ObjectHideFlags: 3
   m_CorrespondingSourceObject: {fileID: 0}
@@ -9,44 +9,38 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 48a79b01ea5641d4aa6daa2e23605641, type: 3}
-  m_Name: Bloom
+  m_Script: {fileID: 11500000, guid: 54ccac7a7b193e24b838948044c40846, type: 3}
+  m_Name: RetroPostProcessEffect
   m_EditorClassIdentifier: 
-  active: 0
+  active: 1
   enabled:
     overrideState: 1
     value: 1
-  intensity:
-    overrideState: 1
-    value: 3
-  threshold:
+  UsesFixedResolution:
     overrideState: 1
     value: 1
-  softKnee:
+  PixelScale:
     overrideState: 1
-    value: 0.426
-  clamp:
-    overrideState: 0
-    value: 65472
-  diffusion:
-    overrideState: 0
-    value: 7
-  anamorphicRatio:
-    overrideState: 0
-    value: 0.46
-  color:
-    overrideState: 1
-    value: {r: 1, g: 1, b: 1, a: 1}
-  fastMode:
-    overrideState: 1
-    value: 0
-  dirtTexture:
-    overrideState: 0
-    value: {fileID: 2800000, guid: bc7cff4e290311248912a8272233113c, type: 3}
-    defaultState: 1
-  dirtIntensity:
-    overrideState: 0
     value: 4
+  FixedVerticalResolution:
+    overrideState: 1
+    value: 277
+  ColorDepth:
+    overrideState: 1
+    value: 0.1
+  DitherPattern:
+    overrideState: 1
+    value: {fileID: 2800000, guid: 33e4517dca3a2274ba1532dd85e3c541, type: 3}
+    defaultState: 0
+  DitherPatternScale:
+    overrideState: 1
+    value: 1
+  DitherThreshold:
+    overrideState: 1
+    value: 0.872
+  DitherIntensity:
+    overrideState: 1
+    value: 0.034
 --- !u!114 &-3360773648967559137
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -74,7 +68,7 @@ MonoBehaviour:
     value: {x: 0.5, y: 0.5}
   intensity:
     overrideState: 1
-    value: 0.281
+    value: 0.193
   smoothness:
     overrideState: 1
     value: 1
@@ -109,7 +103,7 @@ MonoBehaviour:
     value: 1
   intensity:
     overrideState: 1
-    value: 17
+    value: 16
   intensityX:
     overrideState: 1
     value: 1
@@ -138,11 +132,11 @@ MonoBehaviour:
   m_Name: Main Camera Profile
   m_EditorClassIdentifier: 
   settings:
-  - {fileID: -8150426838024775164}
   - {fileID: 5567387094014509396}
   - {fileID: 4395166757270432062}
   - {fileID: -3098773038075900445}
   - {fileID: -3360773648967559137}
+  - {fileID: -8748324964502253465}
 --- !u!114 &4395166757270432062
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -1475,10 +1469,10 @@ MonoBehaviour:
     value: 1
   intensity:
     overrideState: 1
-    value: 0.24
+    value: 1.01
   color:
     overrideState: 1
-    value: {r: 1, g: 0, b: 0, a: 1}
+    value: {r: 0.047169805, g: 0, b: 0, a: 1}
   ambientOnly:
     overrideState: 1
     value: 1
@@ -1493,7 +1487,7 @@ MonoBehaviour:
     value: -12
   thicknessModifier:
     overrideState: 1
-    value: 8.43
+    value: 9
   zBias:
     overrideState: 1
     value: 0
