@@ -18,12 +18,10 @@ public class QuantumObject_Script : MonoBehaviour
         int decision = Random.Range(0, 15);
         if (decision > 5)
         {
-            Debug.Log("Object Moves");
             int randomPositionIndex = Random.Range(0, positions.Length);
             GameObject randomPosition = positions[randomPositionIndex];
             MoveObject(randomPosition);
         }
-        Debug.Log("Object doesn't move");
     }
 
     //moves object
