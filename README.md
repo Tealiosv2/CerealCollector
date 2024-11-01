@@ -1,5 +1,5 @@
 # CerealCollector
 
-A 3d unity game about collecting cereal.
+Grandma needs her cereals. Help her.
 
-Features include CUSTOM 3D MODELS, COLLECTIBLE SYSTEM
+![image](https://github.com/user-attachments/assets/46b24dbd-da14-4441-85b7-9607c007ccd1)
