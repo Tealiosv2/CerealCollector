@@ -12,7 +12,7 @@ public class QuantumObject_Script : MonoBehaviour
         RandomMove();
     }
 
-    //returns a random transform decide if object moves
+    //decides if object moves
     private void RandomMove()
     {
         int decision = Random.Range(0, 15);
