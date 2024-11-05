@@ -8,6 +8,7 @@ namespace DIALOGUE
         public DL_COMMAND_DATA commandsData;
 
         public bool hasDialogue => dialogueData != null;
+        public bool hasCommands => commandsData != null;
 
 
         public DIALOGUE_LINE(string dialogue, string commands)

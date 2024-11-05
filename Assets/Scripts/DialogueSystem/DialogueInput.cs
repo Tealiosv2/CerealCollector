@@ -15,6 +15,6 @@ public class DialogueInput : MonoBehaviour
   {
     List<string> lines = FileManager.ReadTextAsset(fileName);
 
-    //DialogueSystem.instance.Say(lines);
+    DialogueSystem.instance.Say(lines);
   }
 }
