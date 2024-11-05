@@ -20,11 +20,12 @@ public class TextArchitect
     public enum BuildMethod { instant, typewriter, fade }
     public BuildMethod buildMethod = BuildMethod.typewriter;
 
-    private const float baseSpeed = 1;
+    private const float baseSpeed = 0.25f;
     public float speed { get { return baseSpeed * speedMultiplier; } set { speedMultiplier = value; } }
-    private float speedMultiplier = 1;
+    private float speedMultiplier = 0.25f;
 
-    public int charactersPerCycle { get { return speed <= 2f ? characterMultiplier : speed <= 2.5f ? characterMultiplier * 2 : characterMultiplier * 3; } }
+    //public int charactersPerCycle { get { return speed <= 2f ? characterMultiplier : speed <= 2.5f ? characterMultiplier * 2 : characterMultiplier * 3; } }
+    public int charactersPerCycle { get {return 1; } }
     private int characterMultiplier = 1;
 
 
@@ -150,7 +151,8 @@ public class TextArchitect
         while (tmpro.maxVisibleCharacters < tmpro.textInfo.characterCount)
         {
             tmpro.maxVisibleCharacters += charactersPerCycle;
-            yield return new WaitForSeconds(0.015f / speed);
+            //yield return new WaitForSeconds(0.015f / speed);
+            yield return new WaitForSeconds(0.75f);
         }
     }
 
