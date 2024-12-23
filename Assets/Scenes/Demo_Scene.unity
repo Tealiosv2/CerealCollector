@@ -1770,6 +1770,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3548001286285871069, guid: 8e421356e5bbe354ca1b34d4e61f7956,
         type: 3}
+      propertyPath: damping
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3548001286285871069, guid: 8e421356e5bbe354ca1b34d4e61f7956,
+        type: 3}
       propertyPath: acceleration
       value: 5
       objectReference: {fileID: 0}
