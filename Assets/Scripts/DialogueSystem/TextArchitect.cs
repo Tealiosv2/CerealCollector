@@ -1,7 +1,6 @@
 using UnityEngine;
 using System.Collections;
 using TMPro;
-using UnityEditor.Build;
 
 public class TextArchitect
 {
