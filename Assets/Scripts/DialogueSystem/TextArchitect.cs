@@ -152,7 +152,7 @@ public class TextArchitect
         {
             tmpro.maxVisibleCharacters += charactersPerCycle;
             //yield return new WaitForSeconds(0.015f / speed);
-            float[] values = { 0f, 0.25f, 0.55f };
+            float[] values = { 0f, 0.10f, 0.35f };
             float randomValue = values[Random.Range(0, values.Length)];
             yield return new WaitForSeconds(randomValue);
         }
