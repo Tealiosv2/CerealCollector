@@ -25,7 +25,9 @@ public class TextArchitect
 
     //public int charactersPerCycle { get { return speed <= 2f ? characterMultiplier : speed <= 2.5f ? characterMultiplier * 2 : characterMultiplier * 3; } }
     public int charactersPerCycle { get {return 1; } }
-    private int characterMultiplier = 1;
+
+    private float fadeTime = 5f;
+    private float[] randomSpeed = { 0f, 0.10f, 0.35f };
 
 
     public TextArchitect(TextMeshProUGUI tmpro_ui)
@@ -47,6 +49,7 @@ public class TextArchitect
         Stop();
 
         buildProcess = tmpro.StartCoroutine(Building());
+
         return buildProcess;
 
     }
@@ -106,6 +109,7 @@ public class TextArchitect
 
     private void OnComplete()
     {
+
         buildProcess = null;
     }
     public void ForceComplete()
@@ -151,12 +155,44 @@ public class TextArchitect
         {
             tmpro.maxVisibleCharacters += charactersPerCycle;
             //yield return new WaitForSeconds(0.015f / speed);
-            float[] values = { 0f, 0.10f, 0.35f };
-            float randomValue = values[Random.Range(0, values.Length)];
+            float randomValue = randomSpeed[Random.Range(0, randomSpeed.Length)];
             yield return new WaitForSeconds(randomValue);
         }
+        yield return StartFadeOut();
+
+
     }
 
+    public IEnumerator StartFadeOut()
+    {
+        yield return FadeTextOut();
+    }
+    private IEnumerator FadeTextOut()
+    {
+                // Get the current color of the text
+        Color currentColor = tmpro_ui.color;
+        float startAlpha = currentColor.a; // Current alpha value
+        float targetAlpha = 0f; // Target alpha for fade-out (fully transparent)
+        float elapsedTime = 0f;
+
+        while (elapsedTime < fadeTime)
+        {
+            // Gradually reduce alpha
+            float newAlpha = Mathf.Lerp(startAlpha, targetAlpha, elapsedTime / fadeTime);
+            currentColor.a = newAlpha;
+
+            // Apply the updated color
+            tmpro_ui.color = currentColor;
+
+            elapsedTime += Time.deltaTime; // Update elapsed time
+            yield return null; // Wait until the next frame
+        }
+
+        // Ensure the alpha is fully transparent at the end
+        currentColor.a = targetAlpha;
+        tmpro_ui.color = currentColor;
+    
+    }
     private IEnumerator Build_Fade()
     {
 

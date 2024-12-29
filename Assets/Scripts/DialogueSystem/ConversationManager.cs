@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using UnityEngine;
 
 namespace DIALOGUE
@@ -24,7 +23,6 @@ namespace DIALOGUE
             StopConversation();
 
             process = dialogueSystem.StartCoroutine(RunningConversation(conversation));
-
             return process;
         }
 
