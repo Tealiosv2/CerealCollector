@@ -1414,6 +1414,21 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 1565362913}
     m_Modifications:
+    - target: {fileID: 280598542061819273, guid: 87303d6a6b64b0049863e3c793f7e85a,
+        type: 3}
+      propertyPath: Loop
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 280598542061819273, guid: 87303d6a6b64b0049863e3c793f7e85a,
+        type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 280598542061819273, guid: 87303d6a6b64b0049863e3c793f7e85a,
+        type: 3}
+      propertyPath: m_PlayOnAwake
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 6048051299309502184, guid: 87303d6a6b64b0049863e3c793f7e85a,
         type: 3}
       propertyPath: m_Name
@@ -3451,6 +3466,23 @@ PrefabInstance:
       propertyPath: m_Name
       value: UI
       objectReference: {fileID: 0}
+    - target: {fileID: 3515144118702371448, guid: b218604e0ca00574ba927310f405f8dc,
+        type: 3}
+      propertyPath: m_fontAsset
+      value: 
+      objectReference: {fileID: 11400000, guid: af0c88102d67d714ab7163b73ab961ca,
+        type: 2}
+    - target: {fileID: 3515144118702371448, guid: b218604e0ca00574ba927310f405f8dc,
+        type: 3}
+      propertyPath: m_sharedMaterial
+      value: 
+      objectReference: {fileID: 5444579815209183192, guid: af0c88102d67d714ab7163b73ab961ca,
+        type: 2}
+    - target: {fileID: 3515144118702371448, guid: b218604e0ca00574ba927310f405f8dc,
+        type: 3}
+      propertyPath: m_hasFontAssetChanged
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 4705150431008188187, guid: b218604e0ca00574ba927310f405f8dc,
         type: 3}
       propertyPath: m_LocalPosition.x
@@ -4972,7 +5004,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1906063255}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 94e3e00c7db294d8489f45358437019e, type: 3}
   m_Name: 

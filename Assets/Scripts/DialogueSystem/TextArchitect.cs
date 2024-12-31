@@ -26,7 +26,7 @@ public class TextArchitect
     //public int charactersPerCycle { get { return speed <= 2f ? characterMultiplier : speed <= 2.5f ? characterMultiplier * 2 : characterMultiplier * 3; } }
     public int charactersPerCycle { get {return 1; } }
 
-    private float fadeTime = 5f;
+    private float fadeTime = 2f;
     private float[] randomSpeed = { 0f, 0.10f, 0.35f };
 
 
