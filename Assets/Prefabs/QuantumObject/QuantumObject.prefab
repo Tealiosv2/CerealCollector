@@ -248,6 +248,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 62e1b086928e62540be7e7c35fdb18e5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  isMoving: 1
   QuantumObjecet: {fileID: 2629034075932752159}
   positions:
   - {fileID: 2519657945089833900}

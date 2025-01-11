@@ -4,11 +4,17 @@ using UnityEngine;
 
 public class QuantumObject_Script : MonoBehaviour
 {
+    [SerializeField]
+    bool isMoving = true;
     public GameObject QuantumObjecet;
     public GameObject[] positions;
     void OnBecameInvisible()
     {
-        RandomMove();
+        if (isMoving)
+        {
+            RandomMove();
+        }
+
     }
 
     //decides if object moves
@@ -26,6 +32,7 @@ public class QuantumObject_Script : MonoBehaviour
     //moves object
     private void MoveObject(GameObject newPosition)
     {
+        Debug.Log("Quantum Object Moved");
         transform.position = newPosition.transform.position;
     }
 }
