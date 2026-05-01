@@ -17,6 +17,7 @@ public class CollectibleCounter_Script : MonoBehaviour
     private void Start()
     {
         UpdateCount();
+        Debug.Log($"Collectibles spawned at start: {Collectible_Script.total}");
     }
 
     void OnEnable() => Collectible_Script.OnCollected += OnCollectibleCollected;

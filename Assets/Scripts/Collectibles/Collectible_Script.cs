@@ -18,6 +18,7 @@ public class Collectible_Script : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
+            Debug.Log($"Collectible collected. Remaining before destroy: {total - 1}");
             OnCollected?.Invoke();
             Destroy(transform.parent.gameObject);
         }
