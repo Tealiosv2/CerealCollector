@@ -1,6 +1,11 @@
 using UnityEngine;
 using System.Text.RegularExpressions;
 
+/**
+ * DialogueParser is responsible for parsing a raw dialogue line into its dialogue content and associated commands.
+ * It identifies the dialogue content enclosed in double quotes and separates it from any commands that may be present.
+ * The parser also handles escaped characters within the dialogue content.
+ */
 namespace DIALOGUE
 {
     public class DialogueParser

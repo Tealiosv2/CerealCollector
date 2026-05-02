@@ -37,6 +37,6 @@ public class CollectibleCounter_Script : MonoBehaviour
 
     void UpdateCount()
     {
-        text.text = $"{count} / {Collectible_Script.total}";
+        text.text = $"Cereal Boxes Collected: {count} / {Collectible_Script.total}";
     }
 }
