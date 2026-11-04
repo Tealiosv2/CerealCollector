@@ -15,7 +15,7 @@ public class CollectibleHoverOutline_Script : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Install()
     {
-        if (FindObjectOfType<CollectibleHoverOutline_Script>() != null) return;
+        if (FindFirstObjectByType<CollectibleHoverOutline_Script>() != null) return;
         var go = new GameObject("CollectibleHoverOutline");
         DontDestroyOnLoad(go);
         go.AddComponent<CollectibleHoverOutline_Script>();
@@ -74,10 +74,12 @@ public class CollectibleHoverOutline_Script : MonoBehaviour
         mr.receiveShadows = false;
 
         // Scale from the mesh's bounds center, since the pivot may not be centered.
-        var mat = new Material(outlineMat);
+        // A property block avoids creating one Material per collectible.
+        mr.sharedMaterial = outlineMat;
         Vector3 c = srcFilter.sharedMesh.bounds.center;
-        mat.SetVector("_PivotOS", new Vector4(c.x, c.y, c.z, 0));
-        mr.sharedMaterial = mat;
+        var block = new MaterialPropertyBlock();
+        block.SetVector("_PivotOS", new Vector4(c.x, c.y, c.z, 0));
+        mr.SetPropertyBlock(block);
         return go;
     }
 }
