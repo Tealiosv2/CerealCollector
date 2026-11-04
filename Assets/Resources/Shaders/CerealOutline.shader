@@ -1,4 +1,4 @@
-// URP-compatible inverted-hull outline. Unity uses HLSL (not GLSL) for URP shaders.
+// Built-in render pipeline inverted-hull outline (written in CG, which Unity compiles for DX/GL/Metal).
 Shader "Custom/CerealOutline"
 {
     Properties
@@ -9,41 +9,38 @@ Shader "Custom/CerealOutline"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "Queue"="Geometry+1" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry+1" }
         Pass
         {
             Name "Outline"
-            Tags { "LightMode"="UniversalForward" }
             Cull Front
             ZWrite On
             ZTest LEqual
 
-            HLSLPROGRAM
+            CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "UnityCG.cginc"
 
-            CBUFFER_START(UnityPerMaterial)
-                half4 _OutlineColor;
-                float _OutlineScale;
-                float4 _PivotOS;
-            CBUFFER_END
+            fixed4 _OutlineColor;
+            float _OutlineScale;
+            float4 _PivotOS;
 
-            struct Attributes { float4 positionOS : POSITION; };
-            struct Varyings   { float4 positionCS : SV_POSITION; };
+            struct appdata { float4 vertex : POSITION; };
+            struct v2f { float4 pos : SV_POSITION; };
 
-            Varyings vert(Attributes IN)
+            v2f vert(appdata v)
             {
-                Varyings OUT;
-                // Scale the mesh away from its center: works well for box-shaped meshes
-                // (normal extrusion would tear apart at hard-edged cube corners).
-                float3 p = _PivotOS.xyz + (IN.positionOS.xyz - _PivotOS.xyz) * (1.0 + _OutlineScale);
-                OUT.positionCS = TransformObjectToHClip(p);
-                return OUT;
+                v2f o;
+                // Scale the mesh away from its center: works for box-shaped meshes
+                // (normal extrusion tears apart at hard-edged cube corners).
+                float3 p = _PivotOS.xyz + (v.vertex.xyz - _PivotOS.xyz) * (1.0 + _OutlineScale);
+                o.pos = UnityObjectToClipPos(float4(p, 1.0));
+                return o;
             }
 
-            half4 frag(Varyings IN) : SV_Target { return _OutlineColor; }
-            ENDHLSL
+            fixed4 frag(v2f i) : SV_Target { return _OutlineColor; }
+            ENDCG
         }
     }
 }
