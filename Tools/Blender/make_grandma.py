@@ -518,6 +518,237 @@ stris = sum(len(p.vertices) - 2 for p in skirt.data.polygons) if skirt else 0
 print(f"GRANDMA body_tris={tris} skirt_tris={stris} verts={len(body.data.vertices)} "
       f"bones={len(BONES)} unweighted_fixed={unweighted}")
 
+# ─── 7. Textures (procedurally painted, PS2 resolution) ───────────────────────
+# Each texel is rasterised back to the 3D point it covers on the mesh, then
+# coloured from that 3D position. Features are therefore placed by the same
+# coordinates the face was sculpted with, and the skin is seamless across UV
+# islands and across the head/body boundary.
+import numpy as np
+
+TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(OUT_FBX)), "Textures")
+os.makedirs(TEX_DIR, exist_ok=True)
+RNG = np.random.default_rng(7)
+
+def rasterize(mesh, mat_index, res):
+    """Return (positions[res,res,3], mask[res,res]) for faces of one material.
+    Row 0 is v = 0 (Blender image pixel order)."""
+    pos = np.zeros((res, res, 3), np.float32)
+    mask = np.zeros((res, res), bool)
+    uvl = mesh.uv_layers.active.data
+    mesh.calc_loop_triangles()
+    for lt in mesh.loop_triangles:
+        if mat_index is not None and lt.material_index != mat_index:
+            continue
+        uv = np.array([uvl[l].uv for l in lt.loops], np.float64) * res
+        P = np.array([mesh.vertices[v].co for v in lt.vertices], np.float64)
+        x0, x1 = int(max(0, np.floor(uv[:, 0].min()))), int(min(res - 1, np.ceil(uv[:, 0].max())))
+        y0, y1 = int(max(0, np.floor(uv[:, 1].min()))), int(min(res - 1, np.ceil(uv[:, 1].max())))
+        if x1 < x0 or y1 < y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)
+        (ax, ay), (bx, by), (cx, cy) = uv
+        den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(den) < 1e-12:
+            continue
+        w0 = ((by - cy) * (xs - cx) + (cx - bx) * (ys - cy)) / den
+        w1 = ((cy - ay) * (xs - cx) + (ax - cx) * (ys - cy)) / den
+        w2 = 1 - w0 - w1
+        inside = (w0 >= -0.02) & (w1 >= -0.02) & (w2 >= -0.02)
+        if not inside.any():
+            continue
+        p = w0[..., None] * P[0] + w1[..., None] * P[1] + w2[..., None] * P[2]
+        iy, ix = np.nonzero(inside)
+        pos[iy + y0, ix + x0] = p[iy, ix]
+        mask[iy + y0, ix + x0] = True
+    return pos, mask
+
+def dilate(img, mask, steps=6):
+    """Bleed colour outward from filled texels so mip/filtering has no black seams."""
+    img, mask = img.copy(), mask.copy()
+    for _ in range(steps):
+        acc = np.zeros_like(img); cnt = np.zeros(mask.shape, np.float32)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            m = np.roll(mask, (dy, dx), (0, 1))
+            acc += np.roll(img, (dy, dx), (0, 1)) * m[..., None]
+            cnt += m
+        new = (~mask) & (cnt > 0)
+        img[new] = acc[new] / cnt[new][:, None]
+        mask |= new
+    img[~mask] = img[mask].mean(0)
+    return img
+
+def wave_noise(p, freq, n=8, seed=0):
+    """Cheap smooth 3D noise: sum of random plane waves, roughly in [-1, 1]."""
+    r = np.random.default_rng(seed)
+    out = np.zeros(p.shape[:-1], np.float32)
+    for _ in range(n):
+        k = r.normal(size=3); k = k / np.linalg.norm(k) * freq * r.uniform(0.7, 1.3)
+        out += np.sin(p @ k + r.uniform(0, 6.283))
+    return out / math.sqrt(n / 2)
+
+def gauss(x, s):
+    return np.exp(-(x / s) ** 2)
+
+def mix(img, color, w):
+    w = np.clip(w, 0, 1)[..., None]
+    img[:] = img * (1 - w) + np.array(color, np.float32) * w
+
+SKIN = (0.80, 0.67, 0.59)
+
+def skin_base(p):
+    """Shared elderly skin: pale, mottled, with blotchy redness and age spots."""
+    img = np.empty(p.shape, np.float32)
+    img[:] = SKIN
+    mott = wave_noise(p, 55, seed=1)
+    fine = wave_noise(p, 260, seed=2)
+    img *= (1 + 0.045 * mott + 0.025 * fine)[..., None]
+    mix(img, (0.78, 0.55, 0.52), 0.18 * np.clip(wave_noise(p, 25, seed=3), 0, 1))   # blotchy redness
+    spots = wave_noise(p, 140, n=10, seed=4)
+    mix(img, (0.60, 0.45, 0.36), 0.35 * np.clip((spots - 2.1) * 3.0, 0, 1))         # sparse, faint age spots
+    return img
+
+def save_png(img, name):
+    res = img.shape[0]
+    im = bpy.data.images.new(name, res, res, alpha=False)
+    rgba = np.concatenate([np.clip(img, 0, 1), np.ones((res, res, 1), np.float32)], -1)
+    im.pixels.foreach_set(rgba.ravel())
+    im.filepath_raw = os.path.join(TEX_DIR, name + ".png")
+    im.file_format = "PNG"
+    im.save()
+    print("TEXTURE", im.filepath_raw)
+    return im
+
+# --- Head ---------------------------------------------------------------------
+HEAD_RES = 256
+hp, hmask = rasterize(body.data, 0, HEAD_RES)
+head_img = skin_base(hp)
+X, Y, Z = hp[..., 0], hp[..., 1], hp[..., 2]
+AY = np.array([head_axis_y(z) for z in Z.ravel()]).reshape(Z.shape)
+TH = np.arctan2(X, -(Y - AY))            # 0 at the face, matches the sculpt
+ATH = np.abs(TH)
+R_FACE = 0.094                            # face radius: angle -> arc length (m)
+U = TH * R_FACE                           # metres across the face (signed)
+AU = np.abs(U)
+front_mask = np.cos(TH) > 0
+
+# Shading baked in, PS2 style: deep eye sockets.
+mix(head_img, (0.45, 0.33, 0.33), 0.35 * gauss(ATH - 0.36, 0.17) * gauss(Z - 1.533, 0.016) * front_mask)
+# Rosy cheeks, ears and nose tip; pale, slightly shiny scalp.
+mix(head_img, (0.85, 0.55, 0.52), 0.22 * gauss(ATH - 0.62, 0.16) * gauss(Z - 1.49, 0.018))
+mix(head_img, (0.82, 0.55, 0.50), 0.30 * gauss(ATH - math.pi / 2 - 0.08, 0.14) * gauss(Z - 1.503, 0.03))
+mix(head_img, (0.84, 0.58, 0.54), 0.30 * gauss(TH, 0.06) * gauss(Z - 1.482, 0.010))
+mix(head_img, (0.88, 0.78, 0.72), 0.25 * np.clip((Z - 1.58) / 0.04, 0, 1))
+
+# Eyes: narrow, hooded, drooping at the outer corner; dull sclera, grey-brown iris.
+for s in (1, -1):
+    eu = (TH * s - 0.36) * R_FACE          # + = toward the outer corner
+    ez = Z - 1.535 + 0.0035 * np.clip(eu / 0.013, 0, 1) ** 2  # outer corner droops
+    side = (TH * s > 0) & front_mask
+    shape = (np.abs(eu) / 0.0150) ** 1.6 + (ez / 0.0055) ** 2
+    eye = (shape < 1) & side
+    mix(head_img, (0.30, 0.20, 0.20), 0.55 * gauss(shape - 1.0, 0.35) * side)            # lid rim
+    mix(head_img, (0.62, 0.48, 0.48), 0.45 * gauss(eu, 0.014) * gauss(ez + 0.0085, 0.0035) * side)  # eye bag
+    mix(head_img, (0.66, 0.50, 0.46), 0.35 * gauss(eu, 0.014) * gauss(ez - 0.0085, 0.003) * side)   # hooded lid fold
+    head_img[eye] = (0.76, 0.72, 0.62)
+    iris = eye & ((eu + 0.001) ** 2 + (ez - 0.0006) ** 2 < 0.0047 ** 2)
+    head_img[iris] = (0.30, 0.27, 0.23)
+    pupil = eye & ((eu + 0.001) ** 2 + (ez - 0.0006) ** 2 < 0.0018 ** 2)
+    head_img[pupil] = (0.05, 0.04, 0.04)
+    upper = side & (shape < 1.35) & (ez > 0) & ~eye
+    head_img[upper] = head_img[upper] * 0.55                                              # heavy upper lash line
+    # Crow's feet: a few short lines fanning from the outer corner.
+    for ang in (-0.5, -0.15, 0.2):
+        du, dz = eu - 0.016, ez
+        along = du * math.cos(ang) + dz * math.sin(ang)
+        across = -du * math.sin(ang) + dz * math.cos(ang)
+        mix(head_img, (0.55, 0.42, 0.40), 0.35 * gauss(across, 0.0006) * (along > 0) * gauss(along, 0.008) * side)
+    # Eyebrows: thin, sparse, grey; arched, longer toward the outside.
+    bz = Z - (1.553 - 0.004 * (eu / 0.016) ** 2)
+    brow = gauss(bz, 0.0018) * (eu > -0.014) * (eu < 0.020) * side
+    sparse = np.clip(wave_noise(hp, 900, seed=5 + (s > 0)) * 0.8 + 0.6, 0, 1)
+    mix(head_img, (0.55, 0.52, 0.50), 0.75 * brow * sparse)
+
+# Nose: nostrils (dark, on the underside), fold lines from nose to mouth corners.
+mix(head_img, (0.22, 0.10, 0.09), 0.9 * gauss(ATH - 0.10, 0.035) * gauss(Z - 1.470, 0.0028) * front_mask)
+for s in (1, -1):
+    t = np.clip((1.480 - Z) / 0.032, 0, 1)
+    line_u = (0.017 + 0.009 * t) * s
+    mix(head_img, (0.52, 0.38, 0.36), 0.40 * gauss(U - line_u, 0.0012) * (Z < 1.481) * (Z > 1.446) * front_mask)
+
+# Mouth: thin pale lips with a downturned line.
+mouth_line = 1.4505 - 0.0035 * (AU / 0.022) ** 2
+lip_w = 0.022
+lips = (AU < lip_w) & front_mask
+upper_lip = lips & (Z > mouth_line) & (Z < mouth_line + 0.0035 * (1 - (AU / lip_w) ** 2))
+lower_lip = lips & (Z < mouth_line) & (Z > mouth_line - 0.0050 * (1 - (AU / lip_w) ** 2))
+mix(head_img, (0.62, 0.42, 0.42), 0.85 * (upper_lip | lower_lip))
+mix(head_img, (0.25, 0.10, 0.10), 0.95 * gauss(Z - mouth_line, 0.0007) * (AU < lip_w + 0.002) * front_mask)
+# Fine vertical lip wrinkles above the mouth.
+mix(head_img, (0.60, 0.45, 0.42), 0.25 * (np.sin(U * 900) > 0.6) * (Z > mouth_line + 0.003)
+    * (Z < mouth_line + 0.009) * (AU < 0.018) * front_mask)
+# Forehead wrinkles: three faint, slightly wavy lines.
+for zl in (1.574, 1.584, 1.594):
+    wz = Z - zl - 0.0015 * np.sin(U * 120)
+    mix(head_img, (0.58, 0.45, 0.42), 0.35 * gauss(wz, 0.0008) * (AU < 0.045) * front_mask)
+
+head_img = dilate(head_img, hmask)
+IMG_HEAD = save_png(head_img, "Grandma_Head")
+
+# --- Body ---------------------------------------------------------------------
+BODY_RES = 256
+bp, bmask = rasterize(body.data, 1, BODY_RES)
+body_img = skin_base(bp)
+X, Y, Z = bp[..., 0], bp[..., 1], bp[..., 2]
+# Knees and elbows: redder, slightly wrinkled.
+for s in (1, -1):
+    kn = np.sqrt((X - 0.105 * s) ** 2 + (Y + 0.05) ** 2 + (Z - 0.445) ** 2)
+    mix(body_img, (0.78, 0.52, 0.50), 0.35 * gauss(kn, 0.04))
+    el = np.sqrt((X - 0.37 * s) ** 2 + (Y - 0.075) ** 2 + (Z - 1.065) ** 2)
+    mix(body_img, (0.76, 0.52, 0.50), 0.35 * gauss(el, 0.035))
+    # Hands: knuckle redness, faint veins, pale nails at the tips.
+    w0 = np.array(lr(L("wrist"), s)); tip = np.array(lr((0.665, -0.020, 0.765), s))
+    ax_ = (tip - w0) / np.linalg.norm(tip - w0)
+    t = (bp - w0) @ ax_
+    radial = np.linalg.norm((bp - w0) - t[..., None] * ax_, axis=-1)
+    on_hand = (t > 0) & (radial < 0.06)
+    mix(body_img, (0.80, 0.55, 0.52), 0.35 * gauss(t - 0.075, 0.015) * on_hand)
+    mix(body_img, (0.55, 0.55, 0.68), 0.30 * (np.abs(np.sin(t * 160 + X * 300)) < 0.08) * (t < 0.07) * on_hand)
+    mix(body_img, (0.90, 0.78, 0.74), 0.70 * (t > 0.150) * on_hand)
+    # Toenails area / feet: slightly redder heels and toes.
+    ft = np.sqrt((X - 0.105 * s) ** 2 + (Y + 0.17) ** 2 + (Z - 0.03) ** 2)
+    mix(body_img, (0.82, 0.58, 0.54), 0.35 * gauss(ft, 0.035))
+# Neck wrinkles (matching the head texture's skin, just below the jaw).
+mix(body_img, (0.58, 0.45, 0.42), 0.25 * (np.sin(Z * 700) > 0.85) * (Z > 1.32) * (Z < 1.395) * (Y < 0.02))
+body_img = dilate(body_img, bmask)
+IMG_BODY = save_png(body_img, "Grandma_Body")
+
+# --- Skirt: dull plum wool with a faint faded floral print ---------------------
+IMG_SKIRT = None
+if skirt:
+    SK_RES = 128
+    sp, smask = rasterize(skirt.data, None, SK_RES)
+    sk = np.empty(sp.shape, np.float32); sk[:] = (0.32, 0.22, 0.26)
+    sk *= (1 + 0.06 * wave_noise(sp, 300, seed=11))[..., None]
+    flowers = np.clip(wave_noise(sp, 90, n=10, seed=12) - 1.3, 0, 1)
+    mix(sk, (0.52, 0.42, 0.40), 0.6 * flowers)
+    sk = dilate(sk, smask)
+    IMG_SKIRT = save_png(sk, "Grandma_Skirt")
+
+def attach_texture(mat, img):
+    nt = mat.node_tree
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    bsdf = nt.nodes.get("Principled BSDF")
+    if bsdf:
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.nodes.active = tex
+    mat.diffuse_color = (1, 1, 1, 1)
+
+attach_texture(MAT_HEAD, IMG_HEAD)
+attach_texture(MAT_BODY, IMG_BODY)
+if skirt:
+    attach_texture(MAT_SKIRT, IMG_SKIRT)
+
 # ─── Export ───────────────────────────────────────────────────────────────────
 os.makedirs(os.path.dirname(os.path.abspath(OUT_FBX)), exist_ok=True)
 for o in scene.objects:
@@ -590,6 +821,15 @@ if PREVIEW_DIR:
         skirt.hide_render = True
         views("noskirt_")
         skirt.hide_render = False
+
+    # Textured views (the painted PNGs are the active image nodes).
+    scene.display.shading.color_type = "TEXTURE"
+    shoot("textured_front", (0, -5, 0.82), (0, 0, 0.82))
+    shoot("textured_3q", (3.5, -3.5, 1.1), (0, 0, 0.82))
+    shoot("textured_back", (0, 5, 0.82), (0, 0, 0.82))
+    shoot("textured_face", (0, -5, 1.50), (0, 0, 1.50), scale=0.30)
+    shoot("textured_face_3q", (3.2, -3.8, 1.55), (0, -0.03, 1.50), scale=0.30)
+    shoot("textured_hand", (2.5, -4.0, 0.95), (0.58, 0, 0.84), scale=0.35)
 
     # UV check: a generated UV grid on every material.
     grid = bpy.data.images.new("UVGrid", 1024, 1024)
