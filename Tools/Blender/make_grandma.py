@@ -23,7 +23,9 @@ MAT_DEFS = [
     ("Skirt",    (0.28, 0.20, 0.16)),   # dull brown
     ("Stocking", (0.55, 0.47, 0.40)),
     ("Shoe",     (0.06, 0.05, 0.05)),
-    ("Eye",      (0.00, 0.00, 0.00)),
+    ("Socket",   (0.03, 0.02, 0.02)),   # near-black, sunken
+    ("Pupil",    (0.85, 0.82, 0.62)),   # pale, yellowed pinpricks
+    ("EyeBag",   (0.40, 0.36, 0.32)),   # bruised, darker skin
     ("Mouth",    (0.20, 0.04, 0.05)),
 ]
 MAT = {name: i for i, (name, _) in enumerate(MAT_DEFS)}
@@ -110,6 +112,13 @@ def box(center, size, bone, mat):
     tag(verts, bone, mat)
     return verts
 
+def obox(center, size, rot, bone, mat):
+    """Box with an arbitrary rotation matrix (3x3)."""
+    m = Matrix.Translation(Vector(center)) @ rot.to_4x4() @ Matrix.Diagonal((*size, 1.0))
+    verts = bmesh.ops.create_cube(bm, size=1.0, matrix=m)["verts"]
+    tag(verts, bone, mat)
+    return verts
+
 def bone_box(bone, width, depth, mat, pad=0.0):
     """Box spanning a bone's length (used for hands and feet)."""
     _, h, t, _ = BONE_DATA[bone]
@@ -163,12 +172,32 @@ for vtx in head:
         vtx.co.z -= 0.015
 tag(head, "Head", "Skin")
 
-# Face: hollow black eyes, long nose, thin dark mouth, small ears.
+# Face: sunken eye sockets with pale pinprick pupils, heavy brow, eye bags,
+# long nose, thin dark mouth, small ears.
+# The 8-sided head has a vertical edge down the face centre, so each eye sits
+# on a facet turned 22.5 degrees outward. Parts are laid out in that facet's
+# frame (n = outward normal, t = across the face, z = up) so they sit flush.
 for s in (1, -1):
-    box((0.036 * s, -0.121, 1.625), (0.036, 0.03, 0.030), "Head", "Eye")
+    yaw = math.radians(22.5) * s
+    n = Vector((math.sin(yaw), -math.cos(yaw), 0))          # facet normal
+    t = Vector((math.cos(yaw), math.sin(yaw), 0))           # across the face
+    up = Vector((0, 0, 1))
+    P = Vector((0.037 * s, -0.110, 1.625))                  # point on facet
+    facing = Matrix.Rotation(yaw, 3, "Z")
+    droop = Matrix.Rotation(math.radians(-12) * s, 3, "Y")  # outer corner sags
+
+    obox(P + n * 0.001, (0.040, 0.010, 0.030), facing @ droop, "Head", "Socket")
+    obox(P + n * 0.0065 - t * 0.003 * s, (0.007, 0.004, 0.007), facing, "Head", "Pupil")
+    obox(P + n * 0.001 - up * 0.022 + t * 0.002 * s, (0.036, 0.008, 0.007), facing @ droop, "Head", "EyeBag")
+    obox(P + n * 0.006 + up * 0.024, (0.050, 0.016, 0.013), facing, "Head", "Skin")  # brow ridge
+
     box((0.087 * s, -0.03, 1.60), (0.02, 0.035, 0.06), "Head", "Skin")
+
+    # Mouth half, flush with the same facet angle as the eyes.
+    obox((0.014 * s, -0.124 + 0.004, 1.46), (0.030, 0.008, 0.007),
+         Matrix.Rotation(yaw, 3, "Z"), "Head", "Mouth")
+box((0, -0.128, 1.649), (0.044, 0.020, 0.015), "Head", "Skin")   # brow bridge (hides the brows' inner ends)
 prism((0, -0.128, 1.63), (0, -0.15, 1.525), 0.010, 0.020, 4, "Head", "Skin")
-box((0, -0.112, 1.46), (0.06, 0.03, 0.007), "Head", "Mouth")
 
 # Arms: long sleeves, bony hands with long fingers.
 for s in (1, -1):
@@ -255,6 +284,7 @@ if PREVIEW_DIR:
     shoot("side", (5, 0, 0.9), (0, 0, 0.9))
     shoot("three_quarter", (3.5, -3.5, 1.2), (0, 0, 0.9))
     shoot("face", (0, -5, 1.58), (0, 0, 1.58), scale=0.6)
+    shoot("face_3q", (3.0, -4.0, 1.75), (0, -0.04, 1.57), scale=0.55)
 
     # Rig check: sit her down (thighs forward, knees bent, hands on lap).
     pb = rig.pose.bones
