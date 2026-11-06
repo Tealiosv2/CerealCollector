@@ -609,7 +609,7 @@ if PREVIEW_DIR:
     # Rig check: seated pose.
     pb = rig.pose.bones
     for side in ("Left", "Right"):
-        for bone, ang in (("UpperLeg", 90), ("LowerLeg", -90), ("LowerArm", 40)):
+        for bone, ang in (("UpperLeg", -90), ("LowerLeg", 90), ("LowerArm", -40)):
             pb[side + bone].rotation_mode = "XYZ"
             pb[side + bone].rotation_euler = (math.radians(ang), 0, 0)
     view_layer.update()
