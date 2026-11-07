@@ -722,9 +722,90 @@ tube(gbm, [Vector((0.0165, bridge_y + 0.004, EYE_Z + 0.004)), Vector((0, bridge_
            Vector((-0.0165, bridge_y + 0.004, EYE_Z + 0.004))], WIRE, sides=4)
 glasses = rigid_object("Grandma_Glasses", gbm, MAT_GLASSES)
 
+# Shoes: low-heeled granny Mary Janes, lofted around the actual foot.
+# Cross-sections are measured from the body mesh along the foot's length,
+# so the shoe always encloses the foot. The sole is flat with a small welt,
+# the arch is lifted to give a block-heel silhouette, and the toe is rounded.
+MAT_SHOES = make_material("Grandma_Shoes", (0.07, 0.06, 0.06))
+BALL_Y = NODES["ballL"][0][1]
+sbm = bmesh.new()
+sdl = sbm.verts.layers.deform.verify()
+shoe_groups = {}
+RING = 14
+for s in (1, -1):
+    fx = NODES["ankleL"][0][0] * s
+    foot = [c for c in body_cos if abs(c.x - fx) < 0.09 and c.z < 0.12]
+    y_back = max(c.y for c in foot if c.z < 0.05) + 0.010
+    y_toe = min(c.y for c in foot) - 0.012
+    sections = []
+    N = 12
+    for i in range(N + 1):
+        t = i / N                                   # 0 = heel, 1 = toe tip
+        y = y_back + (y_toe - y_back) * t
+        near = [c for c in foot if abs(c.y - y) < 0.012] or foot
+        xmin, xmax = min(c.x for c in near), max(c.x for c in near)
+        top = max(c.z for c in near if c.z < 0.12)
+        cx = (xmin + xmax) / 2
+        hw = (xmax - xmin) / 2 + 0.007
+        # Upper: low collar at the back, following the instep, rounded toe box.
+        z_top = min(top + 0.007, 0.068) if t < 0.45 else top + 0.007
+        hw = max(hw, 0.040)                         # sensible, roomy width
+        if t > 0.78:                                # blunt, rounded toe box
+            k = (t - 0.78) / 0.22
+            hw *= 1.0 - 0.40 * k ** 2.2             # stays wide to the end
+            z_top = max(0.030, z_top - (z_top - 0.030) * k ** 1.6)
+        if t < 0.08:                                # rounded heel counter
+            hw *= 0.82 + 0.18 * t / 0.08
+        z_bot = 0.0
+        if 0.28 < t < 0.60:                         # arch lifted: block heel + sole
+            z_bot = 0.017 * math.sin(math.pi * (t - 0.28) / 0.32) ** 0.6
+        sections.append((cx, y, hw, z_bot, max(z_top, z_bot + 0.012), t))
+    rings = []
+    for cx, y, hw, zb, zt, t in sections:
+        ring = []
+        for k in range(RING):
+            a = 2 * math.pi * k / RING
+            c_, s_ = math.cos(a), math.sin(a)
+            sx = math.copysign(abs(c_) ** 0.6, c_)   # boxy-rounded (superellipse)
+            sz = math.copysign(abs(s_) ** 0.6, s_)
+            zc, hh = (zb + zt) / 2, (zt - zb) / 2
+            x = cx + hw * sx * (1.06 if sz < -0.7 else 1.0)   # welt: sole slightly wider
+            v = sbm.verts.new((x, y, zc + hh * sz))
+            # Weights: toe part bends with the Toes bone.
+            w_toe = max(0.0, min(1.0, (BALL_Y + 0.02 - y) / 0.04))
+            side = "Left" if s > 0 else "Right"
+            for bone, w in ((side + "Foot", 1 - w_toe), (side + "Toes", w_toe)):
+                if w > 0.001:
+                    gi = shoe_groups.setdefault(bone, len(shoe_groups))
+                    v[sdl][gi] = w
+            ring.append(v)
+        rings.append(ring)
+    for a, b in zip(rings, rings[1:]):
+        for k in range(RING):
+            sbm.faces.new((a[k], a[(k + 1) % RING], b[(k + 1) % RING], b[k]))
+    sbm.faces.new(list(reversed(rings[0])))
+    sbm.faces.new(rings[-1])
+bmesh.ops.recalc_face_normals(sbm, faces=sbm.faces)
+shoe_me = bpy.data.meshes.new("Grandma_Shoes")
+sbm.to_mesh(shoe_me)
+sbm.free()
+shoes = bpy.data.objects.new("Grandma_Shoes", shoe_me)
+scene.collection.objects.link(shoes)
+for name, gi in sorted(shoe_groups.items(), key=lambda kv: kv[1]):
+    shoes.vertex_groups.new(name=name)
+shoe_me.materials.append(MAT_SHOES)
+for p in shoe_me.polygons:
+    p.use_smooth = True
+shoe_me.uv_layers.new(name="UVMap")
+activate(shoes, "EDIT")
+bpy.ops.mesh.select_all(action="SELECT")
+bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.03, scale_to_bounds=True)
+bpy.ops.object.mode_set(mode="OBJECT")
+attach_to_rig(shoes)
+
 tris = sum(len(p.vertices) - 2 for p in body.data.polygons)
 stris = sum(len(p.vertices) - 2 for p in skirt.data.polygons) if skirt else 0
-extra = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in (shirt, hair, ponytail, glasses)}
+extra = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in (shirt, hair, ponytail, glasses, shoes)}
 print("ACCESSORY_TRIS", extra)
 print(f"GRANDMA body_tris={tris} skirt_tris={stris} verts={len(body.data.vertices)} "
       f"bones={len(BONES)} unweighted_fixed={unweighted}")
@@ -1050,6 +1131,36 @@ mix(pt, (0.55, 0.08, 0.12), 1.0 * (pv < 0.10))                                  
 pt = pt[::-1]                                                                     # row 0 = v 0
 IMG_PONY = save_png(pt, "Grandma_Ponytail")
 
+# --- Shoes: black leather Mary Janes ---------------------------------------------
+SHO_RES = 128
+so, somask = rasterize(shoes.data, None, SHO_RES)
+X, Y, Z = so[..., 0], so[..., 1], so[..., 2]
+AX = np.abs(X)
+shoe = np.empty(so.shape, np.float32); shoe[:] = (0.07, 0.06, 0.07)
+shoe *= (1 + 0.15 * wave_noise(so, 250, seed=41))[..., None]                  # creased leather
+toe_front = np.clip((BALL_Y + 0.01 - Y) / 0.05, 0, 1)
+mix(shoe, (0.42, 0.40, 0.44), 0.55 * toe_front * gauss(Z - 0.040, 0.012))      # polished toe-cap sheen
+mix(shoe, (0.30, 0.28, 0.32), 0.35 * gauss(Z - 0.060, 0.008) * (Y > BALL_Y))   # collar edge highlight
+mix(shoe, (0.36, 0.24, 0.15), 1.0 * (Z < 0.008))                                # tan sole edge
+mix(shoe, (0.30, 0.19, 0.12), 1.0 * (Z < 0.028) * (Y > BALL_Y + 0.090))         # stacked block heel
+mix(shoe, (0.22, 0.14, 0.09), 0.8 * (Z < 0.028) * (Y > BALL_Y + 0.090) * (np.sin(Z * 700) > 0.6))  # heel layers
+mix(shoe, (0.55, 0.50, 0.46), 0.7 * (np.abs(Z - 0.013) < 0.0012) * (np.sin(Y * 900) > 0))  # welt stitching
+STRAP_Y = BALL_Y + 0.060
+for s in (1, -1):
+    fx = NODES["ankleL"][0][0] * s
+    # Instep strap: glossy band with light edges so it reads against the shoe.
+    strap = (np.abs(Y - STRAP_Y) < 0.009) & (Z > 0.030)
+    mix(shoe, (0.14, 0.13, 0.16), 1.0 * strap * (np.abs(X - fx) < 0.08))
+    mix(shoe, (0.45, 0.42, 0.46), 0.8 * (np.abs(np.abs(Y - STRAP_Y) - 0.009) < 0.0015) * (Z > 0.030)
+        * (np.abs(X - fx) < 0.08))
+    # Small square gold buckle on the outer side of the strap.
+    outer = s * (X - fx)
+    buckle = (np.abs(Y - STRAP_Y) < 0.011) & (outer > 0.028) & (Z > 0.030) & (Z < 0.062)
+    mix(shoe, (0.85, 0.68, 0.30), 1.0 * buckle)
+    mix(shoe, (0.12, 0.09, 0.05), 1.0 * (buckle & (np.abs(Y - STRAP_Y) < 0.005) & (Z > 0.038) & (Z < 0.054)))
+shoe = dilate(shoe, somask)
+IMG_SHOES = save_png(shoe, "Grandma_Shoes")
+
 def attach_texture(mat, img):
     nt = mat.node_tree
     tex = nt.nodes.new("ShaderNodeTexImage")
@@ -1067,6 +1178,7 @@ if skirt:
 attach_texture(MAT_SHIRT, IMG_SHIRT)
 attach_texture(MAT_HAIR, IMG_HAIR)
 attach_texture(MAT_PONY, IMG_PONY)
+attach_texture(MAT_SHOES, IMG_SHOES)
 
 # ─── Export ───────────────────────────────────────────────────────────────────
 os.makedirs(os.path.dirname(os.path.abspath(OUT_FBX)), exist_ok=True)
@@ -1149,6 +1261,9 @@ if PREVIEW_DIR:
     shoot("textured_face", (0, -5, 1.50), (0, 0, 1.50), scale=0.30)
     shoot("textured_face_3q", (3.2, -3.8, 1.55), (0, -0.03, 1.50), scale=0.30)
     shoot("textured_hand", (2.5, -4.0, 0.95), (0.58, 0, 0.84), scale=0.35)
+    shoot("textured_shoes_3q", (2.6, -3.4, 1.4), (0.0, -0.05, 0.04), scale=0.45)
+    shoot("textured_shoes_side", (5, 0, 0.06), (0, -0.05, 0.06), scale=0.40)
+    shoot("textured_shoes_front", (0, -5, 0.08), (0, 0, 0.08), scale=0.40)
 
     # UV check: a generated UV grid on every material.
     grid = bpy.data.images.new("UVGrid", 1024, 1024)
