@@ -329,6 +329,46 @@ dec.symmetry_axis = "X"
 activate(body)
 bpy.ops.object.modifier_apply(modifier="Decimate")
 
+# ─── Clean lower legs ─────────────────────────────────────────────────────────
+# Decimation leaves the ankle/foot as a few long, bent triangles that never
+# sit well in a shoe. Cut each leg at mid-shin and rebuild everything below
+# as a straight, slightly tapering tube that ends inside the shoe (the foot
+# itself is replaced by the shoe). Done before UVs and rigging, so the new
+# faces get UVs, texture and weights like the rest of the body.
+LEG_CUT = 0.24
+ANKLE_C = {s: Vector((NODES["ankleL"][0][0] * s, NODES["ankleL"][0][1] + 0.004)) for s in (1, -1)}
+lb = bmesh.new()
+lb.from_mesh(body.data)
+for s in (1, -1):
+    fx = ANKLE_C[s].x
+    cut = [f for f in lb.faces
+           if all(v.co.z < LEG_CUT and abs(v.co.x - fx) < 0.13 for v in f.verts)]
+    bmesh.ops.delete(lb, geom=cut, context="FACES")
+    loop = [v for v in lb.verts if v.is_boundary and abs(v.co.x - fx) < 0.13 and v.co.z < 0.45]
+    cen = Vector((sum(v.co.x for v in loop), sum(v.co.y for v in loop))) / len(loop)
+    loop.sort(key=lambda v: math.atan2(v.co.y - cen.y, v.co.x - cen.x))
+    angles = [math.atan2(v.co.y - cen.y, v.co.x - cen.x) for v in loop]
+    radii = [math.hypot(v.co.x - cen.x, v.co.y - cen.y) for v in loop]
+    top_z = sum(v.co.z for v in loop) / len(loop)
+    prev = loop
+    for z in (0.16, 0.095, 0.045):
+        k = (top_z - z) / (top_z - 0.045)
+        c2 = cen.lerp(ANKLE_C[s], k)                       # centre slides onto the ankle
+        ring = []
+        for a, r in zip(angles, radii):
+            rr = r + (0.040 - r) * k                        # taper to a 4 cm ankle
+            ring.append(lb.verts.new((c2.x + rr * math.cos(a), c2.y + rr * math.sin(a), z)))
+        n = len(ring)
+        for i in range(n):
+            lb.faces.new((prev[i], prev[(i + 1) % n], ring[(i + 1) % n], ring[i]))
+        prev = ring
+    lb.faces.new(list(reversed(prev)))                      # cap, hidden inside the shoe
+bmesh.ops.recalc_face_normals(lb, faces=lb.faces)
+lb.to_mesh(body.data)
+lb.free()
+for p in body.data.polygons:
+    p.use_smooth = True
+
 # ─── 4. Materials and UVs ─────────────────────────────────────────────────────
 def make_material(name, rgb):
     m = bpy.data.materials.new(name)
@@ -790,9 +830,9 @@ def add_vert(co, side):
 for s in (1, -1):
     side = "Left" if s > 0 else "Right"
     fx = NODES["ankleL"][0][0] * s
-    foot = [c for c in body_cos if abs(c.x - fx) < 0.09 and c.z < 0.09]
-    y_back = max(c.y for c in foot)
-    y_toe = min(c.y for c in foot)
+    # Sized from the skeleton (the mesh foot was replaced by the leg tube).
+    y_back = NODES["ankleL"][0][1] + 0.055
+    y_toe = NODES["toeL"][0][1] - 0.035
     cx, cy = fx, (y_back + y_toe) / 2 - 0.004
     rx, ry, rz = 0.053, (y_back - y_toe) / 2 + 0.014, 0.066
     SHOE_SPECS.append((cx, cy, rx, ry, rz))
@@ -817,35 +857,6 @@ for s in (1, -1):
     sbm.faces.new(top)
     sbm.faces.new(list(reversed(bot)))
 
-# Straight leg into the shoe: below the ankle the body becomes a vertical
-# column (same centre and radius as the leg just above), so there is no
-# forward ramp of the instep visible above the shoe. The foot itself is
-# hidden inside the shoe anyway.
-for s in (1, -1):
-    fx = NODES["ankleL"][0][0] * s
-    # Decimation leaves the shin as one span from the calf to the ankle ring,
-    # so anchor the column on the ankle joint itself.
-    lx, ly, lr_ = fx, NODES["ankleL"][0][1] + 0.004, 0.042
-    for v in body.data.vertices:
-        c = v.co
-        if abs(c.x - fx) < 0.10 and c.z < 0.110:
-            d = Vector((c.x - lx, c.y - ly))
-            if d.length > lr_:
-                d *= lr_ / d.length
-            c.x, c.y = lx + d.x, ly + d.y
-
-# Pull any foot skin that would poke out back inside the upper.
-for v in body.data.vertices:
-    c = v.co
-    for cx, cy, rx, ry, rz in SHOE_SPECS:
-        if abs(c.x - cx) > 0.11 or c.z > 0.075:
-            continue
-        c.z = max(c.z, SOLE_T + 0.002)
-        d = Vector(((c.x - cx) / (rx * 0.90), (c.y - cy) / (ry * 0.90), (c.z - SOLE_T) / (rz * 0.90)))
-        if d.length > 1.0:
-            k = 1.0 / d.length
-            c.x, c.y = cx + (c.x - cx) * k, cy + (c.y - cy) * k
-            c.z = SOLE_T + (c.z - SOLE_T) * k
 bmesh.ops.recalc_face_normals(sbm, faces=sbm.faces)
 shoe_me = bpy.data.meshes.new("Grandma_Shoes")
 sbm.to_mesh(shoe_me)
@@ -1172,7 +1183,14 @@ IMG_HEAD = save_png(head_img, "Grandma_Head")
 BODY_RES = 256
 bp, bmask, bn = rasterize(body.data, 1, BODY_RES, want_normals=True)
 body_img = skin_base(bp)
-roast(body_img, bn, occlusion(bp, bn, bmask))
+body_ao = occlusion(bp, bn, bmask)
+# The leg tubes end in a hidden cap inside the shoes; do not let it read as
+# deep shadow on the shins.
+leg_fade = np.clip((bp[..., 2] - 0.08) / 0.40, 0, 1) ** 1.5      # lower legs: even tone into the shoes
+body_ao *= leg_fade
+bn_roast = bn.copy()
+bn_roast[..., 2] *= leg_fade                 # tapering shins face slightly down; ignore that there
+roast(body_img, bn_roast, body_ao)
 X, Y, Z = bp[..., 0], bp[..., 1], bp[..., 2]
 # Knees and elbows: redder, slightly wrinkled.
 for s in (1, -1):
@@ -1196,8 +1214,6 @@ for s in (1, -1):
 # with a darker reinforced toe; plain black shoes painted on the feet.
 legs = (Z < 0.62) & (np.abs(X) < 0.2)
 mix(body_img, (0.70, 0.45, 0.40), 0.18 * legs)                     # very sheer: the reddened skin shows through
-mix(body_img, (0.06, 0.05, 0.05), 1.0 * legs * (Z < 0.075))
-mix(body_img, (0.30, 0.26, 0.24), 0.8 * legs * (np.abs(Z - 0.075) < 0.004))   # shoe top edge
 # Neck wrinkles (matching the head texture's skin, just below the jaw).
 mix(body_img, (0.58, 0.45, 0.42), 0.25 * (np.sin(Z * 700) > 0.85) * (Z > 1.32) * (Z < 1.395) * (Y < 0.02))
 body_img = dilate(body_img, bmask)
