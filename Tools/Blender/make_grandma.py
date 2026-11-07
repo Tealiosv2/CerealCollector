@@ -448,26 +448,43 @@ for v in body.data.vertices:
 # ─── 6. Skirt (separate object, weights borrowed from the body) ───────────────
 skirt = None
 if MAKE_SKIRT:
-    SEG, RINGS = 12, [1.000, 0.860, 0.640, 0.420]
-    body_verts = [v.co.copy() for v in body.data.vertices]
-    def extent(z, band=0.03):
-        """Max half-width (x) and half-depth (y) of the body near height z."""
-        xs = [abs(c.x) for c in body_verts if abs(c.z - z) < band and abs(c.x) < 0.30]
-        ys = [abs(c.y - 0.01) for c in body_verts if abs(c.z - z) < band and abs(c.x) < 0.30]
-        return (max(xs) if xs else 0.2), (max(ys) if ys else 0.15)
+    SEG, RINGS = 12, [1.000, 0.930, 0.840, 0.720, 0.580, 0.420]
+    SK_C = Vector((0.0, 0.01))
+    # Radial extent of the body per (height band, angular sector). Shirt sits
+    # ~1 cm outside the body above the waist, so that is added in. Each
+    # vertex is pushed out by 1/cos(pi/SEG) so the flat panels between
+    # vertices (not just the corners) clear the body: no buttocks or hips
+    # poking through between corners.
+    pts = []
+    for v in body.data.vertices:
+        c = v.co
+        d = Vector((c.x, c.y)) - SK_C
+        if d.length < 0.32 and 0.38 < c.z < 1.06:                  # torso/legs, not arms
+            pts.append((c.z, math.atan2(d.y, d.x), d.length + (0.011 if c.z > 0.88 else 0.0)))
+    half = math.pi / SEG
+    def sector_extent(z, ang, band=0.05):
+        best = 0.0
+        for pz, pa, pr in pts:
+            da = abs((pa - ang + math.pi) % (2 * math.pi) - math.pi)
+            if abs(pz - z) < band and da < half * 1.6:
+                best = max(best, pr)
+        return best
     ring_r = []
-    rx_prev = ry_prev = 0
+    prev = [0.0] * SEG
     for i, z in enumerate(RINGS):
-        rx, ry = extent(z)
-        flare = 0.012 + 0.03 * i / (len(RINGS) - 1)
-        rx, ry = max(rx + flare, rx_prev), max(ry + flare, ry_prev)   # never narrows going down
-        ring_r.append((rx, ry))
-        rx_prev, ry_prev = rx, ry
+        flare = 0.014 + 0.028 * i / (len(RINGS) - 1)
+        rr = []
+        for k in range(SEG):
+            r = sector_extent(z, 2 * math.pi * k / SEG) / math.cos(half) + flare
+            rr.append(max(r, prev[k], 0.12))                         # never narrows going down
+        rr = [max(rr[k], 0.85 * max(rr[k - 1], rr[(k + 1) % SEG])) for k in range(SEG)]  # no dents
+        ring_r.append(rr)
+        prev = rr
     sbm = bmesh.new()
     rings = []
-    for z, (rx, ry) in zip(RINGS, ring_r):
-        rings.append([sbm.verts.new((rx * math.cos(2 * math.pi * k / SEG),
-                                     0.01 + ry * math.sin(2 * math.pi * k / SEG), z)) for k in range(SEG)])
+    for z, rr in zip(RINGS, ring_r):
+        rings.append([sbm.verts.new((SK_C.x + rr[k] * math.cos(2 * math.pi * k / SEG),
+                                     SK_C.y + rr[k] * math.sin(2 * math.pi * k / SEG), z)) for k in range(SEG)])
     for a, b in zip(rings, rings[1:]):
         for k in range(SEG):
             sbm.faces.new((a[k], a[(k + 1) % SEG], b[(k + 1) % SEG], b[k]))
@@ -653,7 +670,22 @@ def shirt_pred(c, w):
         return True
     near_elbow = min((c - e).length for e in ELBOWS) < 0.10
     return near_elbow and wsum(w, ["LeftLowerArm", "RightLowerArm"]) > 0.3
-shirt = shell("Grandma_Shirt", shirt_pred, 0.007, MAT_SHIRT)
+WRISTS = [Vector(lr(L("wrist"), s)) for s in (1, -1)]
+CUFF_T = 0.075                         # sleeve ends this far past the elbow
+def clean_shirt_edges(v):
+    """Snap the jagged (decimated) open edges onto clean lines: a straight
+    cuff across the forearm, the curved neckline, and a level hem."""
+    c = v.co
+    if abs(c.x) > 0.24:                                   # sleeve cuff
+        i = 0 if c.x > 0 else 1
+        axis = (WRISTS[i] - ELBOWS[i]).normalized()
+        t = (c - ELBOWS[i]).dot(axis)
+        v.co = c + axis * (CUFF_T - t)
+    elif c.z > 1.15:                                       # neckline
+        c.z = neckline_z(c.y)
+    else:                                                  # hem, tucked in the skirt
+        c.z = 0.905
+shirt = shell("Grandma_Shirt", shirt_pred, 0.007, MAT_SHIRT, boundary_fix=clean_shirt_edges)
 
 body_cos = [v.co for v in body.data.vertices]
 hair = ponytail = None
@@ -784,6 +816,23 @@ for s in (1, -1):
         sbm.faces.new((bot[k], bot[(k + 1) % SEGS], top[(k + 1) % SEGS], top[k]))
     sbm.faces.new(top)
     sbm.faces.new(list(reversed(bot)))
+
+# Straight leg into the shoe: below the ankle the body becomes a vertical
+# column (same centre and radius as the leg just above), so there is no
+# forward ramp of the instep visible above the shoe. The foot itself is
+# hidden inside the shoe anyway.
+for s in (1, -1):
+    fx = NODES["ankleL"][0][0] * s
+    # Decimation leaves the shin as one span from the calf to the ankle ring,
+    # so anchor the column on the ankle joint itself.
+    lx, ly, lr_ = fx, NODES["ankleL"][0][1] + 0.004, 0.042
+    for v in body.data.vertices:
+        c = v.co
+        if abs(c.x - fx) < 0.10 and c.z < 0.110:
+            d = Vector((c.x - lx, c.y - ly))
+            if d.length > lr_:
+                d *= lr_ / d.length
+            c.x, c.y = lx + d.x, ly + d.y
 
 # Pull any foot skin that would poke out back inside the upper.
 for v in body.data.vertices:
@@ -1371,6 +1420,9 @@ if PREVIEW_DIR:
     shoot("textured_front", (0, -5, 0.82), (0, 0, 0.82))
     shoot("textured_3q", (3.5, -3.5, 1.1), (0, 0, 0.82))
     shoot("textured_back", (0, 5, 0.82), (0, 0, 0.82))
+    shoot("textured_side", (5, 0, 0.82), (0, 0, 0.82))
+    shoot("textured_back_3q", (-3.5, 3.5, 1.1), (0, 0, 0.82))
+    shoot("textured_sleeve", (2.2, -2.6, 1.3), (0.40, 0.03, 1.02), scale=0.5)
     shoot("textured_face", (0, -5, 1.50), (0, 0, 1.50), scale=0.30)
     shoot("textured_face_3q", (3.2, -3.8, 1.55), (0, -0.03, 1.50), scale=0.30)
     shoot("textured_hand", (2.5, -4.0, 0.95), (0.58, 0, 0.84), scale=0.35)
