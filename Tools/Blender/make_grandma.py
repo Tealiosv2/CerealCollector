@@ -264,8 +264,8 @@ def head_detail(z, th):
     d += 0.005 * _g(th, 0.55) * _g(z - 1.557, 0.008)             # brow ridge
     d += 0.007 * _g(ath - 0.68, 0.20) * _g(z - 1.503, 0.016)     # cheekbones
     d -= 0.008 * _g(ath - 0.55, 0.20) * _g(z - 1.462, 0.016)     # sunken cheeks
-    d += 0.004 * _g(th, 0.30) * _g(z - 1.453, 0.009)             # lips
-    d -= 0.004 * _g(th, 0.26) * _g(z - 1.450, 0.0025)            # mouth line
+    d += 0.004 * _g(th, 0.37) * _g(z - 1.453, 0.009)             # lips (wide mouth)
+    d -= 0.004 * _g(th, 0.33) * _g(z - 1.450, 0.0025)            # mouth line
     d += 0.008 * _g(th, 0.26) * _g(z - 1.420, 0.010)             # chin
     d += 0.020 * _g(ath - math.pi / 2 - 0.08, 0.11) * _g(z - 1.503, 0.024)  # ears
     return d
@@ -735,10 +735,18 @@ sbm = bmesh.new()
 sdl = sbm.verts.layers.deform.verify()
 shoe_groups = {}
 RING = 14
+# Tuck the heel in: pull the back of the foot/ankle toward the ankle axis so
+# no skin bulges out behind or above the shoe's low collar.
+ANKLE_Y = NODES["ankleL"][0][1]
+for v in body.data.vertices:
+    c = v.co
+    if c.z < 0.115 and abs(abs(c.x) - NODES["ankleL"][0][0]) < 0.08 and c.y > ANKLE_Y:
+        k = max(0.0, min(1.0, (0.115 - c.z) / 0.045))       # full below z 0.07
+        c.y = ANKLE_Y + (c.y - ANKLE_Y) * (1.0 - 0.30 * k)
 for s in (1, -1):
     fx = NODES["ankleL"][0][0] * s
     foot = [c for c in body_cos if abs(c.x - fx) < 0.09 and c.z < 0.12]
-    y_back = max(c.y for c in foot if c.z < 0.05) + 0.010
+    y_back = max(c.y for c in foot if c.z < 0.085) + 0.008   # cover the whole heel
     y_toe = min(c.y for c in foot) - 0.012
     sections = []
     N = 12
@@ -968,7 +976,12 @@ def grade(img):
     levels = 31
     return np.clip(np.round(img * levels + dither) / levels, 0, 1)
 
+PIXELATE = 2          # paint at full res, save at 1/PIXELATE (chunkier PS2 texels)
+
 def save_png(img, name, w=None):
+    if PIXELATE > 1:                     # box-filter downsample keeps thin details as soft marks
+        h_, w_ = img.shape[0] // PIXELATE, img.shape[1] // PIXELATE
+        img = img[:h_ * PIXELATE, :w_ * PIXELATE].reshape(h_, PIXELATE, w_, PIXELATE, 3).mean((1, 3))
     img = grade(img)
     res = img.shape[0]
     im = bpy.data.images.new(name, img.shape[1], res, alpha=False)
@@ -993,12 +1006,13 @@ R_FACE = 0.094                            # face radius: angle -> arc length (m)
 U = TH * R_FACE                           # metres across the face (signed)
 AU = np.abs(U)
 front_mask = np.cos(TH) > 0
+WRINKLE = (0.38, 0.12, 0.10)              # dark crimson creases on the roasted skin
 
 # Shading baked in, PS2 style: deep, crater-like eye sockets. A wide soft
 # shadow plus a tighter, darker ring hugging each eye makes them read as
 # sunken holes even though the eyes themselves are painted flat.
 mix(head_img, (0.30, 0.20, 0.22), 0.45 * gauss(ATH - 0.36, 0.20) * gauss(Z - 1.536, 0.018) * front_mask)
-mix(head_img, (0.12, 0.07, 0.09), 0.60 * gauss(ATH - 0.36, 0.12) * gauss(Z - 1.535, 0.010) * front_mask)
+mix(head_img, (0.08, 0.03, 0.04), 0.80 * gauss(ATH - 0.36, 0.13) * gauss(Z - 1.535, 0.011) * front_mask)
 # Rosy cheeks, ears and nose tip; pale, slightly shiny scalp.
 mix(head_img, (0.85, 0.55, 0.52), 0.22 * gauss(ATH - 0.62, 0.16) * gauss(Z - 1.49, 0.018))
 mix(head_img, (0.82, 0.55, 0.50), 0.30 * gauss(ATH - math.pi / 2 - 0.08, 0.14) * gauss(Z - 1.503, 0.03))
@@ -1025,11 +1039,11 @@ for s in (1, -1):
     upper = side & (shape < 1.35) & (ez > 0) & ~eye
     head_img[upper] = head_img[upper] * 0.55                                              # heavy upper lash line
     # Crow's feet: a few short lines fanning from the outer corner.
-    for ang in (-0.5, -0.15, 0.2):
+    for ang in (-0.75, -0.42, -0.12, 0.18, 0.48):
         du, dz = eu - 0.016, ez
         along = du * math.cos(ang) + dz * math.sin(ang)
         across = -du * math.sin(ang) + dz * math.cos(ang)
-        mix(head_img, (0.55, 0.42, 0.40), 0.35 * gauss(across, 0.0006) * (along > 0) * gauss(along, 0.008) * side)
+        mix(head_img, WRINKLE, 0.55 * gauss(across, 0.0011) * (along > 0) * gauss(along, 0.013) * side)
     # Eyebrows: thin, sparse, grey; arched, longer toward the outside.
     bz = Z - (1.553 - 0.004 * (eu / 0.016) ** 2)
     brow = gauss(bz, 0.0018) * (eu > -0.014) * (eu < 0.020) * side
@@ -1044,8 +1058,8 @@ for s in (1, -1):
     mix(head_img, (0.52, 0.38, 0.36), 0.40 * gauss(U - line_u, 0.0012) * (Z < 1.481) * (Z > 1.446) * front_mask)
 
 # Mouth: thin pale lips with a downturned line.
-mouth_line = 1.4505 - 0.0035 * (AU / 0.022) ** 2
-lip_w = 0.022
+lip_w = 0.0275                                 # wider mouth
+mouth_line = 1.4505 - 0.0040 * (AU / lip_w) ** 2
 lips = (AU < lip_w) & front_mask
 upper_lip = lips & (Z > mouth_line) & (Z < mouth_line + 0.0035 * (1 - (AU / lip_w) ** 2))
 lower_lip = lips & (Z < mouth_line) & (Z > mouth_line - 0.0050 * (1 - (AU / lip_w) ** 2))
@@ -1058,11 +1072,47 @@ if MAKE_HAIR:
     mix(head_img, (0.55, 0.55, 0.57), 0.85 * for_hair)
 # Fine vertical lip wrinkles above the mouth.
 mix(head_img, (0.60, 0.45, 0.42), 0.25 * (np.sin(U * 900) > 0.6) * (Z > mouth_line + 0.003)
-    * (Z < mouth_line + 0.009) * (AU < 0.018) * front_mask)
-# Forehead wrinkles: three faint, slightly wavy lines.
-for zl in (1.574, 1.584, 1.594):
-    wz = Z - zl - 0.0015 * np.sin(U * 120)
-    mix(head_img, (0.58, 0.45, 0.42), 0.35 * gauss(wz, 0.0008) * (AU < 0.045) * front_mask)
+    * (Z < mouth_line + 0.009) * (AU < 0.024) * front_mask)
+# Wrinkles. Lines are a little wider than real creases so they survive the
+# downsample to PS2 resolution.
+def crease(dist, width=0.0012):
+    return gauss(dist, width)
+# Forehead: five deep, wavy horizontal lines, fading out toward the temples.
+for i, zl in enumerate((1.568, 1.577, 1.586, 1.595, 1.604)):
+    wz = Z - zl - 0.0018 * np.sin(U * 110 + i * 1.7) - 0.004 * (AU / 0.05) ** 2
+    mix(head_img, WRINKLE, 0.55 * crease(wz) * gauss(U, 0.040) * front_mask)
+# Frown lines: two vertical creases between the brows.
+for s in (1, -1):
+    mix(head_img, WRINKLE, 0.55 * crease(U - 0.006 * s, 0.0010) * (Z > 1.540) * (Z < 1.562) * front_mask)
+# Under-eye creases: two curved lines below each eye bag.
+for s in (1, -1):
+    eu = (TH * s - 0.36) * R_FACE
+    for off in (0.013, 0.019):
+        cz = Z - (1.535 - off + 0.004 * (eu / 0.016) ** 2)
+        mix(head_img, WRINKLE, 0.45 * crease(cz, 0.0010) * (np.abs(eu) < 0.016) * (TH * s > 0) * front_mask)
+# Cheek creases: long diagonal folds down the cheeks, plus fine crosshatching.
+for s in (1, -1):
+    t = np.clip((1.505 - Z) / 0.055, 0, 1)
+    for off in (0.034, 0.044):
+        line_u = (off + 0.010 * t) * s
+        mix(head_img, WRINKLE, 0.28 * crease(U - line_u, 0.0012) * (Z < 1.505) * (Z > 1.445) * front_mask)
+fine = (np.abs(np.sin(U * 700 + Z * 500)) < 0.12) | (np.abs(np.sin(U * 650 - Z * 520)) < 0.12)
+mix(head_img, WRINKLE, 0.14 * fine * gauss(AU - 0.045, 0.020) * gauss(Z - 1.48, 0.03) * front_mask)
+# Marionette lines: from the mouth corners down toward the chin.
+for s in (1, -1):
+    t = np.clip((1.450 - Z) / 0.030, 0, 1)
+    line_u = (lip_w + 0.002 + 0.004 * t) * s
+    mix(head_img, WRINKLE, 0.55 * crease(U - line_u, 0.0012) * (Z < 1.450) * (Z > 1.420) * front_mask)
+# More vertical lip lines (upper and lower), and a deeper nose-to-mouth fold.
+lipl = np.abs(np.sin(U * 600)) < 0.15
+mix(head_img, WRINKLE, 0.35 * lipl * (AU < lip_w) * (np.abs(Z - mouth_line) < 0.010)
+    * (np.abs(Z - mouth_line) > 0.0012) * front_mask)
+for s in (1, -1):
+    t = np.clip((1.480 - Z) / 0.032, 0, 1)
+    mix(head_img, WRINKLE, 0.45 * crease(U - (0.018 + 0.010 * t) * s, 0.0014) * (Z < 1.481) * (Z > 1.444) * front_mask)
+# Neck creases just under the jaw.
+for zl in (1.400, 1.412):
+    mix(head_img, WRINKLE, 0.40 * crease(Z - zl - 0.002 * np.sin(U * 90), 0.0012) * (np.cos(TH) > -0.2))
 
 head_img = dilate(head_img, hmask)
 IMG_HEAD = save_png(head_img, "Grandma_Head")
