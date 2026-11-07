@@ -319,6 +319,16 @@ bm.free()
 for p in body.data.polygons:
     p.use_smooth = True
 
+# PSX-style low poly: collapse-decimate the shaped body, keeping it symmetric.
+TARGET_RATIO = 0.33
+dec = body.modifiers.new("Decimate", "DECIMATE")
+dec.decimate_type = "COLLAPSE"
+dec.ratio = TARGET_RATIO
+dec.use_symmetry = True
+dec.symmetry_axis = "X"
+activate(body)
+bpy.ops.object.modifier_apply(modifier="Decimate")
+
 # ─── 4. Materials and UVs ─────────────────────────────────────────────────────
 def make_material(name, rgb):
     m = bpy.data.materials.new(name)
@@ -438,7 +448,7 @@ for v in body.data.vertices:
 # ─── 6. Skirt (separate object, weights borrowed from the body) ───────────────
 skirt = None
 if MAKE_SKIRT:
-    SEG, RINGS = 20, [1.000, 0.930, 0.840, 0.740, 0.620, 0.500, 0.420]
+    SEG, RINGS = 12, [1.000, 0.860, 0.640, 0.420]
     body_verts = [v.co.copy() for v in body.data.vertices]
     def extent(z, band=0.03):
         """Max half-width (x) and half-depth (y) of the body near height z."""
@@ -708,21 +718,21 @@ for s in (1, -1):
     yaw = 0.14 * s                                    # slight wrap with the face
     c = Vector((0.034 * s, min(eye.y, head_surface(EYE_Z + 0.02, 0.36 * s).y) - 0.013, EYE_Z))
     ring = []
-    for k in range(16):
-        a = 2 * math.pi * k / 16
+    for k in range(10):
+        a = 2 * math.pi * k / 10
         local = Vector((math.cos(a) * LENS_R, 0, math.sin(a) * LENS_R))
         ring.append(c + Matrix.Rotation(yaw, 3, "Z") @ local)
-    tube(gbm, ring, WIRE, sides=4, closed=True)
+    tube(gbm, ring, WIRE, sides=3, closed=True)
     outer = c + Matrix.Rotation(yaw, 3, "Z") @ Vector((LENS_R * s, 0, 0.002))
     temple = [outer,
               Vector((0.084 * s, outer.y + 0.035, EYE_Z + 0.002)),
               Vector((0.087 * s, -0.005, EYE_Z - 0.004)),
               Vector((0.086 * s, 0.030, EYE_Z - 0.020)),
               Vector((0.082 * s, 0.040, EYE_Z - 0.040))]
-    tube(gbm, temple, WIRE, sides=4)
+    tube(gbm, temple, WIRE, sides=3)
 bridge_y = head_surface(EYE_Z + 0.004, 0.0).y - 0.006
 tube(gbm, [Vector((0.0165, bridge_y + 0.004, EYE_Z + 0.004)), Vector((0, bridge_y, EYE_Z + 0.009)),
-           Vector((-0.0165, bridge_y + 0.004, EYE_Z + 0.004))], WIRE, sides=4)
+           Vector((-0.0165, bridge_y + 0.004, EYE_Z + 0.004))], WIRE, sides=3)
 glasses = rigid_object("Grandma_Glasses", gbm, MAT_GLASSES)
 
 # Shoes: low-heeled granny Mary Janes, lofted around the actual foot.
@@ -734,7 +744,7 @@ BALL_Y = NODES["ballL"][0][1]
 sbm = bmesh.new()
 sdl = sbm.verts.layers.deform.verify()
 shoe_groups = {}
-RING = 14
+RING = 8
 # Tuck the heel in: pull the back of the foot/ankle toward the ankle axis so
 # no skin bulges out behind or above the shoe's low collar.
 ANKLE_Y = NODES["ankleL"][0][1]
@@ -749,13 +759,13 @@ for s in (1, -1):
     y_back = max(c.y for c in foot if c.z < 0.085) + 0.008   # cover the whole heel
     y_toe = min(c.y for c in foot) - 0.012
     sections = []
-    N = 12
+    N = 7
     for i in range(N + 1):
         t = i / N                                   # 0 = heel, 1 = toe tip
         y = y_back + (y_toe - y_back) * t
-        near = [c for c in foot if abs(c.y - y) < 0.012] or foot
+        near = ([c for c in foot if abs(c.y - y) < 0.025] or [c for c in foot if abs(c.y - y) < 0.05] or foot)
         xmin, xmax = min(c.x for c in near), max(c.x for c in near)
-        top = max(c.z for c in near if c.z < 0.12)
+        top = min(0.066, max(c.z for c in near if c.z < 0.12))   # cap: no spikes from the ankle
         cx = (xmin + xmax) / 2
         hw = (xmax - xmin) / 2 + 0.007
         # Upper: low collar at the back, following the instep, rounded toe box.
@@ -898,7 +908,7 @@ def occlusion(pos, nrm, mask, rays=16, dist=0.16, step=2):
             hits = sum(1 for d in local
                        if BODY_BVH.ray_cast(p, t * d[0] + b * d[1] + n * d[2], dist)[0] is not None)
             ao[by:by + step, bx:bx + step] = hits / rays
-    for _ in range(2):                                           # soften
+    for _ in range(8):                                           # soften (avoid blotchy patches)
         acc = ao.copy(); cnt = np.ones_like(ao)
         for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             m = np.roll(mask, (dy, dx), (0, 1))
@@ -974,7 +984,8 @@ def grade(img):
     h, w = img.shape[:2]
     dither = np.tile(BAYER4, (h // 4 + 1, w // 4 + 1))[:h, :w][..., None]
     levels = 31
-    return np.clip(np.round(img * levels + dither) / levels, 0, 1)
+    # No baked dither: with big point-sampled texels it shows as a checkerboard.
+    return np.clip(np.round(img * levels) / levels, 0, 1)
 
 PIXELATE = 2          # paint at full res, save at 1/PIXELATE (chunkier PS2 texels)
 
@@ -1277,6 +1288,7 @@ def attach_texture(mat, img):
     bsdf = nt.nodes.get("Principled BSDF")
     if bsdf:
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    tex.interpolation = "Closest"         # PSX: hard texels, no filtering
     nt.nodes.active = tex
     mat.diffuse_color = (1, 1, 1, 1)
 
