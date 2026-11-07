@@ -735,77 +735,68 @@ tube(gbm, [Vector((0.0165, bridge_y + 0.004, EYE_Z + 0.004)), Vector((0, bridge_
            Vector((-0.0165, bridge_y + 0.004, EYE_Z + 0.004))], WIRE, sides=3)
 glasses = rigid_object("Grandma_Glasses", gbm, MAT_GLASSES)
 
-# Shoes: low-heeled granny Mary Janes, lofted around the actual foot.
-# Cross-sections are measured from the body mesh along the foot's length,
-# so the shoe always encloses the foot. The sole is flat with a small welt,
-# the arch is lifted to give a block-heel silhouette, and the toe is rounded.
+# Shoes: deliberately simple, PSX style. Per foot: the top half of an
+# ellipsoid for the upper, sitting on a thick elliptical sole. The foot skin
+# is pulled inside the shoe so only the leg comes out of the opening.
 MAT_SHOES = make_material("Grandma_Shoes", (0.07, 0.06, 0.06))
 BALL_Y = NODES["ballL"][0][1]
+SOLE_T = 0.024                     # sole thickness
+SEGS = 10                          # around the ellipse
 sbm = bmesh.new()
 sdl = sbm.verts.layers.deform.verify()
 shoe_groups = {}
-RING = 8
-# Tuck the heel in: pull the back of the foot/ankle toward the ankle axis so
-# no skin bulges out behind or above the shoe's low collar.
-ANKLE_Y = NODES["ankleL"][0][1]
+SHOE_SPECS = []
+
+def add_vert(co, side):
+    v = sbm.verts.new(co)
+    w_toe = max(0.0, min(1.0, (BALL_Y + 0.02 - co[1]) / 0.05))   # toe bends with Toes
+    for bone, w in ((side + "Foot", 1 - w_toe), (side + "Toes", w_toe)):
+        if w > 0.001:
+            v[sdl][shoe_groups.setdefault(bone, len(shoe_groups))] = w
+    return v
+
+for s in (1, -1):
+    side = "Left" if s > 0 else "Right"
+    fx = NODES["ankleL"][0][0] * s
+    foot = [c for c in body_cos if abs(c.x - fx) < 0.09 and c.z < 0.09]
+    y_back = max(c.y for c in foot)
+    y_toe = min(c.y for c in foot)
+    cx, cy = fx, (y_back + y_toe) / 2 - 0.004
+    rx, ry, rz = 0.053, (y_back - y_toe) / 2 + 0.014, 0.066
+    SHOE_SPECS.append((cx, cy, rx, ry, rz))
+    ring = lambda r_x, r_y, z: [add_vert((cx + r_x * math.cos(2 * math.pi * k / SEGS),
+                                          cy + r_y * math.sin(2 * math.pi * k / SEGS), z), side)
+                                for k in range(SEGS)]
+    # Upper: half ellipsoid (latitudes 0, 35, 65 degrees, then the top pole).
+    lats = [ring(rx * math.cos(math.radians(a)), ry * math.cos(math.radians(a)),
+                 SOLE_T + rz * math.sin(math.radians(a))) for a in (0, 35, 65)]
+    pole = add_vert((cx, cy, SOLE_T + rz), side)
+    for a, b in zip(lats, lats[1:]):
+        for k in range(SEGS):
+            sbm.faces.new((a[k], a[(k + 1) % SEGS], b[(k + 1) % SEGS], b[k]))
+    for k in range(SEGS):
+        sbm.faces.new((lats[-1][k], lats[-1][(k + 1) % SEGS], pole))
+    sbm.faces.new(list(reversed(lats[0])))
+    # Thick sole: an elliptical slab slightly larger than the upper's footprint.
+    top = ring(rx + 0.007, ry + 0.008, SOLE_T)
+    bot = ring(rx + 0.007, ry + 0.008, 0.0)
+    for k in range(SEGS):
+        sbm.faces.new((bot[k], bot[(k + 1) % SEGS], top[(k + 1) % SEGS], top[k]))
+    sbm.faces.new(top)
+    sbm.faces.new(list(reversed(bot)))
+
+# Pull any foot skin that would poke out back inside the upper.
 for v in body.data.vertices:
     c = v.co
-    if c.z < 0.115 and abs(abs(c.x) - NODES["ankleL"][0][0]) < 0.08 and c.y > ANKLE_Y:
-        k = max(0.0, min(1.0, (0.115 - c.z) / 0.045))       # full below z 0.07
-        c.y = ANKLE_Y + (c.y - ANKLE_Y) * (1.0 - 0.30 * k)
-for s in (1, -1):
-    fx = NODES["ankleL"][0][0] * s
-    foot = [c for c in body_cos if abs(c.x - fx) < 0.09 and c.z < 0.12]
-    y_back = max(c.y for c in foot if c.z < 0.085) + 0.008   # cover the whole heel
-    y_toe = min(c.y for c in foot) - 0.012
-    sections = []
-    N = 7
-    for i in range(N + 1):
-        t = i / N                                   # 0 = heel, 1 = toe tip
-        y = y_back + (y_toe - y_back) * t
-        near = ([c for c in foot if abs(c.y - y) < 0.025] or [c for c in foot if abs(c.y - y) < 0.05] or foot)
-        xmin, xmax = min(c.x for c in near), max(c.x for c in near)
-        top = min(0.066, max(c.z for c in near if c.z < 0.12))   # cap: no spikes from the ankle
-        cx = (xmin + xmax) / 2
-        hw = (xmax - xmin) / 2 + 0.007
-        # Upper: low collar at the back, following the instep, rounded toe box.
-        z_top = min(top + 0.007, 0.068) if t < 0.45 else top + 0.007
-        hw = max(hw, 0.040)                         # sensible, roomy width
-        if t > 0.78:                                # blunt, rounded toe box
-            k = (t - 0.78) / 0.22
-            hw *= 1.0 - 0.40 * k ** 2.2             # stays wide to the end
-            z_top = max(0.030, z_top - (z_top - 0.030) * k ** 1.6)
-        if t < 0.08:                                # rounded heel counter
-            hw *= 0.82 + 0.18 * t / 0.08
-        z_bot = 0.0
-        if 0.28 < t < 0.60:                         # arch lifted: block heel + sole
-            z_bot = 0.017 * math.sin(math.pi * (t - 0.28) / 0.32) ** 0.6
-        sections.append((cx, y, hw, z_bot, max(z_top, z_bot + 0.012), t))
-    rings = []
-    for cx, y, hw, zb, zt, t in sections:
-        ring = []
-        for k in range(RING):
-            a = 2 * math.pi * k / RING
-            c_, s_ = math.cos(a), math.sin(a)
-            sx = math.copysign(abs(c_) ** 0.6, c_)   # boxy-rounded (superellipse)
-            sz = math.copysign(abs(s_) ** 0.6, s_)
-            zc, hh = (zb + zt) / 2, (zt - zb) / 2
-            x = cx + hw * sx * (1.06 if sz < -0.7 else 1.0)   # welt: sole slightly wider
-            v = sbm.verts.new((x, y, zc + hh * sz))
-            # Weights: toe part bends with the Toes bone.
-            w_toe = max(0.0, min(1.0, (BALL_Y + 0.02 - y) / 0.04))
-            side = "Left" if s > 0 else "Right"
-            for bone, w in ((side + "Foot", 1 - w_toe), (side + "Toes", w_toe)):
-                if w > 0.001:
-                    gi = shoe_groups.setdefault(bone, len(shoe_groups))
-                    v[sdl][gi] = w
-            ring.append(v)
-        rings.append(ring)
-    for a, b in zip(rings, rings[1:]):
-        for k in range(RING):
-            sbm.faces.new((a[k], a[(k + 1) % RING], b[(k + 1) % RING], b[k]))
-    sbm.faces.new(list(reversed(rings[0])))
-    sbm.faces.new(rings[-1])
+    for cx, cy, rx, ry, rz in SHOE_SPECS:
+        if abs(c.x - cx) > 0.11 or c.z > 0.075:
+            continue
+        c.z = max(c.z, SOLE_T + 0.002)
+        d = Vector(((c.x - cx) / (rx * 0.90), (c.y - cy) / (ry * 0.90), (c.z - SOLE_T) / (rz * 0.90)))
+        if d.length > 1.0:
+            k = 1.0 / d.length
+            c.x, c.y = cx + (c.x - cx) * k, cy + (c.y - cy) * k
+            c.z = SOLE_T + (c.z - SOLE_T) * k
 bmesh.ops.recalc_face_normals(sbm, faces=sbm.faces)
 shoe_me = bpy.data.meshes.new("Grandma_Shoes")
 sbm.to_mesh(shoe_me)
@@ -1259,25 +1250,25 @@ AX = np.abs(X)
 shoe = np.empty(so.shape, np.float32); shoe[:] = (0.07, 0.06, 0.07)
 shoe *= (1 + 0.15 * wave_noise(so, 250, seed=41))[..., None]                  # creased leather
 toe_front = np.clip((BALL_Y + 0.01 - Y) / 0.05, 0, 1)
-mix(shoe, (0.42, 0.40, 0.44), 0.55 * toe_front * gauss(Z - 0.040, 0.012))      # polished toe-cap sheen
-mix(shoe, (0.30, 0.28, 0.32), 0.35 * gauss(Z - 0.060, 0.008) * (Y > BALL_Y))   # collar edge highlight
-mix(shoe, (0.36, 0.24, 0.15), 1.0 * (Z < 0.008))                                # tan sole edge
-mix(shoe, (0.30, 0.19, 0.12), 1.0 * (Z < 0.028) * (Y > BALL_Y + 0.090))         # stacked block heel
-mix(shoe, (0.22, 0.14, 0.09), 0.8 * (Z < 0.028) * (Y > BALL_Y + 0.090) * (np.sin(Z * 700) > 0.6))  # heel layers
-mix(shoe, (0.55, 0.50, 0.46), 0.7 * (np.abs(Z - 0.013) < 0.0012) * (np.sin(Y * 900) > 0))  # welt stitching
+mix(shoe, (0.42, 0.40, 0.44), 0.55 * toe_front * gauss(Z - SOLE_T - 0.040, 0.014))      # polished toe-cap sheen
+mix(shoe, (0.30, 0.28, 0.32), 0.35 * gauss(Z - SOLE_T - 0.055, 0.008) * (Y > BALL_Y))   # upper highlight
+mix(shoe, (0.36, 0.24, 0.15), 1.0 * (Z < SOLE_T + 0.001))                       # thick tan sole
+mix(shoe, (0.26, 0.16, 0.10), 1.0 * (Z < SOLE_T + 0.001) * (Y > BALL_Y + 0.090))  # darker heel
+mix(shoe, (0.20, 0.12, 0.08), 0.8 * (np.abs(Z - SOLE_T * 0.5) < 0.002))       # sole groove
+mix(shoe, (0.55, 0.50, 0.46), 0.7 * (np.abs(Z - SOLE_T - 0.004) < 0.0015) * (np.sin(Y * 900) > 0))  # welt stitching
 STRAP_Y = BALL_Y + 0.060
 for s in (1, -1):
     fx = NODES["ankleL"][0][0] * s
     # Instep strap: glossy band with light edges so it reads against the shoe.
-    strap = (np.abs(Y - STRAP_Y) < 0.009) & (Z > 0.030)
+    strap = (np.abs(Y - STRAP_Y) < 0.010) & (Z > SOLE_T + 0.030)
     mix(shoe, (0.14, 0.13, 0.16), 1.0 * strap * (np.abs(X - fx) < 0.08))
-    mix(shoe, (0.45, 0.42, 0.46), 0.8 * (np.abs(np.abs(Y - STRAP_Y) - 0.009) < 0.0015) * (Z > 0.030)
+    mix(shoe, (0.45, 0.42, 0.46), 0.8 * (np.abs(np.abs(Y - STRAP_Y) - 0.009) < 0.0015) * (Z > SOLE_T + 0.030)
         * (np.abs(X - fx) < 0.08))
     # Small square gold buckle on the outer side of the strap.
     outer = s * (X - fx)
-    buckle = (np.abs(Y - STRAP_Y) < 0.011) & (outer > 0.028) & (Z > 0.030) & (Z < 0.062)
+    buckle = (np.abs(Y - STRAP_Y) < 0.012) & (outer > 0.024) & (Z > SOLE_T + 0.020) & (Z < SOLE_T + 0.052)
     mix(shoe, (0.85, 0.68, 0.30), 1.0 * buckle)
-    mix(shoe, (0.12, 0.09, 0.05), 1.0 * (buckle & (np.abs(Y - STRAP_Y) < 0.005) & (Z > 0.038) & (Z < 0.054)))
+    mix(shoe, (0.12, 0.09, 0.05), 1.0 * (buckle & (np.abs(Y - STRAP_Y) < 0.005) & (Z > SOLE_T + 0.028) & (Z < SOLE_T + 0.044)))
 shoe = dilate(shoe, somask)
 IMG_SHOES = save_png(shoe, "Grandma_Shoes")
 
