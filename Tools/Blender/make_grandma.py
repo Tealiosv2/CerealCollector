@@ -263,10 +263,10 @@ def head_detail(z, th):
     d -= 0.013 * _g(ath - 0.36, 0.16) * _g(z - 1.533, 0.014)     # eye sockets
     d += 0.005 * _g(th, 0.55) * _g(z - 1.557, 0.008)             # brow ridge
     d += 0.007 * _g(ath - 0.68, 0.20) * _g(z - 1.503, 0.016)     # cheekbones
-    d -= 0.008 * _g(ath - 0.55, 0.20) * _g(z - 1.462, 0.016)     # sunken cheeks
-    d += 0.004 * _g(th, 0.37) * _g(z - 1.453, 0.009)             # lips (wide mouth)
+    d -= 0.006 * _g(ath - 0.60, 0.20) * _g(z - 1.462, 0.016)     # sunken cheeks (softer, off the mouth)
+    d += 0.007 * _g(th, 0.37) * _g(z - 1.453, 0.010)             # lips (wide mouth, fuller)
     d -= 0.004 * _g(th, 0.33) * _g(z - 1.450, 0.0025)            # mouth line
-    d += 0.008 * _g(th, 0.26) * _g(z - 1.420, 0.010)             # chin
+    d += 0.012 * _g(th, 0.28) * _g(z - 1.420, 0.011)             # stronger chin
     d += 0.020 * _g(ath - math.pi / 2 - 0.08, 0.11) * _g(z - 1.503, 0.024)  # ears
     return d
 
@@ -319,15 +319,33 @@ bm.free()
 for p in body.data.polygons:
     p.use_smooth = True
 
-# PSX-style low poly: collapse-decimate the shaped body, keeping it symmetric.
-TARGET_RATIO = 0.33
-dec = body.modifiers.new("Decimate", "DECIMATE")
-dec.decimate_type = "COLLAPSE"
-dec.ratio = TARGET_RATIO
-dec.use_symmetry = True
-dec.symmetry_axis = "X"
-activate(body)
-bpy.ops.object.modifier_apply(modifier="Decimate")
+# PSX-style low poly, in two passes so the budget is controlled per region:
+# the body is reduced hard, the head keeps more polygons (PSX characters spent
+# their polys on the face). Both passes keep the mesh symmetric.
+BODY_TRIS, HEAD_TRIS = 800, 460
+HEAD_SPLIT = 1.38
+def tri_count(pred=lambda p: True):
+    return sum(len(p.vertices) - 2 for p in body.data.polygons if pred(p))
+def decimate_region(target_tris, head):
+    grp = body.vertex_groups.new(name="_region")
+    grp.add([v.index for v in body.data.vertices if v.co.z > HEAD_SPLIT], 1.0, "REPLACE")
+    in_region = (lambda p: p.center.z > HEAD_SPLIT) if head else (lambda p: p.center.z <= HEAD_SPLIT)
+    total, region = tri_count(), tri_count(in_region)
+    dm = body.modifiers.new("Decimate", "DECIMATE")
+    dm.decimate_type = "COLLAPSE"
+    dm.ratio = max(0.01, min(1.0, (total - region + target_tris) / total))
+    dm.use_symmetry = True
+    dm.symmetry_axis = "X"
+    dm.vertex_group = "_region"
+    dm.invert_vertex_group = not head             # head pass: only head; body pass: everything else
+    dm.vertex_group_factor = 1.0
+    activate(body)
+    bpy.ops.object.modifier_apply(modifier="Decimate")
+    if body.vertex_groups.get("_region"):
+        body.vertex_groups.remove(body.vertex_groups["_region"])
+decimate_region(BODY_TRIS, head=False)
+decimate_region(HEAD_TRIS, head=True)
+print("HEAD_TRIS", tri_count(lambda p: p.center.z > 1.395), "TOTAL", tri_count())
 
 # ─── Clean lower legs ─────────────────────────────────────────────────────────
 # Decimation leaves the ankle/foot as a few long, bent triangles that never
@@ -363,6 +381,72 @@ for s in (1, -1):
             lb.faces.new((prev[i], prev[(i + 1) % n], ring[(i + 1) % n], ring[i]))
         prev = ring
     lb.faces.new(list(reversed(prev)))                      # cap, hidden inside the shoe
+
+def head_surface(z, th, out=0.0):
+    """Point on the designed head surface at height z, angle th (0 = face)."""
+    half_w, depth_f, depth_b = catmull(z)
+    depth = depth_f if math.cos(th) > 0 else depth_b
+    r = 1.0 / math.sqrt((math.sin(th) / half_w) ** 2 + (math.cos(th) / depth) ** 2)
+    r += head_detail(z, th) + out
+    ay = head_axis_y(z)
+    return Vector((r * math.sin(th), ay - r * math.cos(th), z))
+
+
+# ─── Ears and thumbs (simple low-poly pieces, part of the body mesh) ─────────
+def ear(bm_, s):
+    """Long elderly ear: outer rim, recessed bowl, hanging lobe, angled out
+    from the side of the head (back edge further out than the front)."""
+    th = (math.pi / 2 + 0.10) * s
+    P = head_surface(1.502, th)
+    up = Vector((0, 0, 1))
+    out = Vector((math.sin(th), -math.cos(th), 0)).normalized()     # away from the head
+    fwd = up.cross(out).normalized() * (-s)                          # toward the face
+    if fwd.y > 0:
+        fwd = -fwd
+    N = 9
+    outline = []
+    for k in range(N):
+        a = 2 * math.pi * k / N + math.pi / 2
+        u = 0.017 * math.cos(a)                                      # + toward the face
+        v = 0.031 * math.sin(a) if math.sin(a) > 0 else 0.039 * math.sin(a)   # long lobe below
+        outline.append((u - (0.004 if v < -0.02 else 0.0), v))       # lobe tucks forward
+    def place(u, v, extra):
+        stick = -0.004 + 0.009 * max(0.0, min(1.0, (0.02 - u) / 0.04))  # back edge sticks out; front is sunk into the head
+        return P + fwd * u + up * v + out * (stick + extra)
+    front = [bm_.verts.new(place(u, v, 0.003)) for u, v in outline]
+    inner = [bm_.verts.new(place(u * 0.55 + 0.002, v * 0.6, 0.000)) for u, v in outline]
+    back = [bm_.verts.new(place(u * 0.9, v * 0.9, -0.010)) for u, v in outline]   # buried in the skull: no gap
+    bowl = bm_.verts.new(place(0.004, -0.004, -0.003))
+    for k in range(N):
+        j = (k + 1) % N
+        bm_.faces.new((front[k], front[j], inner[j], inner[k]))        # rim (helix)
+        bm_.faces.new((inner[k], inner[j], bowl))                      # recessed bowl
+        bm_.faces.new((back[j], back[k], front[k], front[j]))          # outer edge
+    bm_.faces.new(list(reversed(back)))                                # back of the ear
+
+def thumb(bm_, s):
+    wl = NODES["wristL"][0]
+    w0 = Vector((wl[0] * s, wl[1], wl[2]))
+    tip = Vector((0.665 * s, -0.020, 0.765))
+    axis = (tip - w0).normalized()
+    side = Vector((0, -1, 0))                                          # thumbs forward (A-pose)
+    base = w0 + axis * 0.030 + side * 0.020           # starts inside the hand edge
+    dirn = (axis * 0.55 + side * 0.80).normalized()   # angles out from the hand
+    pts = [base, base + dirn * 0.028, base + dirn * 0.048 + axis * 0.008]
+    rings = []
+    for p, r in zip(pts, (0.012, 0.010, 0.007)):
+        u_ = dirn.cross(Vector((0, 0, 1))).normalized()
+        v_ = dirn.cross(u_)
+        rings.append([bm_.verts.new(p + (u_ * math.cos(a) + v_ * math.sin(a)) * r)
+                      for a in (2 * math.pi * k / 5 for k in range(5))])
+    for a_, b_ in zip(rings, rings[1:]):
+        for k in range(5):
+            bm_.faces.new((a_[k], a_[(k + 1) % 5], b_[(k + 1) % 5], b_[k]))
+    bm_.faces.new(list(reversed(rings[0])))
+    bm_.faces.new(rings[-1])
+
+for s in (1, -1):
+    ear(lb, s)          # (thumbs left out: simple mitten hands, as requested)
 bmesh.ops.recalc_face_normals(lb, faces=lb.faces)
 lb.to_mesh(body.data)
 lb.free()
@@ -686,15 +770,6 @@ def rigid_object(name, bm_, mat, bone="Head"):
     vg.add(list(range(len(me.vertices))), 1.0, "REPLACE")
     attach_to_rig(obj)
     return obj
-
-def head_surface(z, th, out=0.0):
-    """Point on the designed head surface at height z, angle th (0 = face)."""
-    half_w, depth_f, depth_b = catmull(z)
-    depth = depth_f if math.cos(th) > 0 else depth_b
-    r = 1.0 / math.sqrt((math.sin(th) / half_w) ** 2 + (math.cos(th) / depth) ** 2)
-    r += head_detail(z, th) + out
-    ay = head_axis_y(z)
-    return Vector((r * math.sin(th), ay - r * math.cos(th), z))
 
 # Shirt: a dusty-rose blouse, round neck, three-quarter sleeves, tucked into the skirt.
 MAT_SHIRT = make_material("Grandma_Shirt", (0.78, 0.52, 0.58))
@@ -1059,7 +1134,11 @@ def save_png(img, name, w=None):
 HEAD_RES = 256
 hp, hmask, hn = rasterize(body.data, 0, HEAD_RES, want_normals=True)
 head_img = skin_base(hp)
-roast(head_img, hn, occlusion(hp, hn, hmask))
+head_ao = occlusion(hp, hn, hmask)
+# Ears sit against the skull, so they read as fully occluded; keep them lighter.
+ear_zone = gauss(np.abs(hp[..., 0]) - 0.085, 0.020) * gauss(hp[..., 2] - 1.50, 0.045)
+head_ao *= 1.0 - 0.75 * ear_zone
+roast(head_img, hn, head_ao)
 X, Y, Z = hp[..., 0], hp[..., 1], hp[..., 2]
 AY = np.array([head_axis_y(z) for z in Z.ravel()]).reshape(Z.shape)
 TH = np.arctan2(X, -(Y - AY))            # 0 at the face, matches the sculpt
