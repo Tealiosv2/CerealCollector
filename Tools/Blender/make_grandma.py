@@ -241,7 +241,7 @@ def catmull(z):
                           + (-a + 3 * b - 3 * cc + d) * t ** 3))
     return out
 
-def g(x, s):
+def _g(x, s):
     return math.exp(-(x / s) ** 2)
 
 def head_detail(z, th):
@@ -257,16 +257,16 @@ def head_detail(z, th):
         else:
             height = 0.032 * (z - 1.466) / 0.012
             width = 0.16
-        d += height * g(th, width)
-    d += 0.007 * g(ath - 0.17, 0.06) * g(z - 1.481, 0.008)     # nostril wings
-    d -= 0.013 * g(ath - 0.36, 0.16) * g(z - 1.533, 0.014)     # eye sockets
-    d += 0.005 * g(th, 0.55) * g(z - 1.557, 0.008)             # brow ridge
-    d += 0.007 * g(ath - 0.68, 0.20) * g(z - 1.503, 0.016)     # cheekbones
-    d -= 0.008 * g(ath - 0.55, 0.20) * g(z - 1.462, 0.016)     # sunken cheeks
-    d += 0.004 * g(th, 0.30) * g(z - 1.453, 0.009)             # lips
-    d -= 0.004 * g(th, 0.26) * g(z - 1.450, 0.0025)            # mouth line
-    d += 0.008 * g(th, 0.26) * g(z - 1.420, 0.010)             # chin
-    d += 0.020 * g(ath - math.pi / 2 - 0.08, 0.11) * g(z - 1.503, 0.024)  # ears
+        d += height * _g(th, width)
+    d += 0.007 * _g(ath - 0.17, 0.06) * _g(z - 1.481, 0.008)     # nostril wings
+    d -= 0.013 * _g(ath - 0.36, 0.16) * _g(z - 1.533, 0.014)     # eye sockets
+    d += 0.005 * _g(th, 0.55) * _g(z - 1.557, 0.008)             # brow ridge
+    d += 0.007 * _g(ath - 0.68, 0.20) * _g(z - 1.503, 0.016)     # cheekbones
+    d -= 0.008 * _g(ath - 0.55, 0.20) * _g(z - 1.462, 0.016)     # sunken cheeks
+    d += 0.004 * _g(th, 0.30) * _g(z - 1.453, 0.009)             # lips
+    d -= 0.004 * _g(th, 0.26) * _g(z - 1.450, 0.0025)            # mouth line
+    d += 0.008 * _g(th, 0.26) * _g(z - 1.420, 0.010)             # chin
+    d += 0.020 * _g(ath - math.pi / 2 - 0.08, 0.11) * _g(z - 1.503, 0.024)  # ears
     return d
 
 def head_axis_y(z):
@@ -513,8 +513,219 @@ if MAKE_SKIRT:
     m = skirt.modifiers.new("Armature", "ARMATURE")
     m.object = rig
 
+# ─── 6b. Shirt, hair, ponytail, glasses ───────────────────────────────────────
+GROUP = {g.name: g.index for g in body.vertex_groups}
+
+def attach_to_rig(obj):
+    obj.parent = rig
+    mod = obj.modifiers.new("Armature", "ARMATURE")
+    mod.object = rig
+
+def solidify(obj, thickness, offset=-1.0):
+    sol = obj.modifiers.new("Solidify", "SOLIDIFY")
+    sol.thickness = thickness
+    sol.offset = offset
+    activate(obj)
+    bpy.ops.object.modifier_apply(modifier="Solidify")
+
+def shell(name, face_pred, offset, mat, thickness=0.003, boundary_fix=None):
+    """Copy the body faces selected by face_pred(center, weights), inflate
+    them along the normals, and return a new skinned object. UVs and skin
+    weights are inherited from the body. boundary_fix(vert) can reposition
+    the open edge (e.g. to smooth a stair-stepped hairline)."""
+    sb = bmesh.new()
+    sb.from_mesh(body.data)
+    dl = sb.verts.layers.deform.active
+    for v in sb.verts:
+        v.co += v.normal * offset
+    def weights(f):
+        acc = {}
+        for v in f.verts:
+            for gi, w in v[dl].items():
+                acc[gi] = acc.get(gi, 0.0) + w / len(f.verts)
+        return acc
+    drop = [f for f in sb.faces if not face_pred(f.calc_center_median(), weights(f))]
+    bmesh.ops.delete(sb, geom=drop, context="FACES")
+    if boundary_fix:
+        for v in [v for v in sb.verts if v.is_boundary]:
+            boundary_fix(v)
+    for f in sb.faces:
+        f.material_index = 0
+    me = bpy.data.meshes.new(name)
+    sb.to_mesh(me)
+    sb.free()
+    obj = bpy.data.objects.new(name, me)
+    scene.collection.objects.link(obj)
+    for g in body.vertex_groups:                 # same order, so deform indices match
+        obj.vertex_groups.new(name=g.name)
+    me.materials.clear()
+    me.materials.append(mat)
+    for p in me.polygons:
+        p.use_smooth = True
+    solidify(obj, thickness)
+    attach_to_rig(obj)
+    return obj
+
+def wsum(w, names):
+    return sum(w.get(GROUP[n], 0.0) for n in names if n in GROUP)
+
+def tube(bm_, points, radii, sides=8, closed=False, cap=True):
+    """Loft rings of `sides` vertices along a polyline. Returns rings."""
+    pts = [Vector(p) for p in points]
+    n = len(pts)
+    rings = []
+    prev_u = None
+    for i, p in enumerate(pts):
+        if closed:
+            tan = (pts[(i + 1) % n] - pts[(i - 1) % n]).normalized()
+        else:
+            tan = (pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized()
+        if prev_u is None:
+            u_, v_ = basis_for(tan)
+        else:                                    # parallel transport: no twisting
+            u_ = (prev_u - tan * prev_u.dot(tan)).normalized()
+            v_ = tan.cross(u_)
+        prev_u = u_
+        r = radii[i] if isinstance(radii, (list, tuple)) else radii
+        rings.append([bm_.verts.new(p + (u_ * math.cos(a) + v_ * math.sin(a)) * r)
+                      for a in (2 * math.pi * k / sides for k in range(sides))])
+    count = n if closed else n - 1
+    for i in range(count):
+        a, b = rings[i], rings[(i + 1) % n]
+        for k in range(sides):
+            bm_.faces.new((a[k], a[(k + 1) % sides], b[(k + 1) % sides], b[k]))
+    if cap and not closed:
+        bm_.faces.new(list(reversed(rings[0])))
+        bm_.faces.new(rings[-1])
+    return rings
+
+def basis_for(axis):
+    ref = Vector((0, 0, 1)) if abs(axis.z) < 0.9 else Vector((1, 0, 0))
+    u_ = (ref - axis * axis.dot(ref)).normalized()
+    return u_, axis.cross(u_)
+
+def rigid_object(name, bm_, mat, bone="Head"):
+    me = bpy.data.meshes.new(name)
+    bmesh.ops.recalc_face_normals(bm_, faces=bm_.faces)
+    bm_.to_mesh(me)
+    bm_.free()
+    obj = bpy.data.objects.new(name, me)
+    scene.collection.objects.link(obj)
+    me.materials.append(mat)
+    for p in me.polygons:
+        p.use_smooth = True
+    vg = obj.vertex_groups.new(name=bone)
+    vg.add(list(range(len(me.vertices))), 1.0, "REPLACE")
+    attach_to_rig(obj)
+    return obj
+
+def head_surface(z, th, out=0.0):
+    """Point on the designed head surface at height z, angle th (0 = face)."""
+    half_w, depth_f, depth_b = catmull(z)
+    depth = depth_f if math.cos(th) > 0 else depth_b
+    r = 1.0 / math.sqrt((math.sin(th) / half_w) ** 2 + (math.cos(th) / depth) ** 2)
+    r += head_detail(z, th) + out
+    ay = head_axis_y(z)
+    return Vector((r * math.sin(th), ay - r * math.cos(th), z))
+
+# Shirt: a dusty-rose blouse, round neck, three-quarter sleeves, tucked into the skirt.
+MAT_SHIRT = make_material("Grandma_Shirt", (0.78, 0.52, 0.58))
+ELBOWS = [Vector(lr(L("elbow"), s)) for s in (1, -1)]
+TORSO = ["Hips", "Spine", "Chest", "UpperChest", "LeftShoulder", "RightShoulder",
+         "LeftUpperArm", "RightUpperArm"]
+def neckline_z(y):
+    return 1.335 - 0.050 * max(0.0, min(1.0, -(y - 0.02) / 0.13))
+def shirt_pred(c, w):
+    if c.z < 0.90 or c.z > neckline_z(c.y) or w.get(GROUP["Neck"], 0) > 0.4:
+        return False
+    if wsum(w, TORSO) > 0.5:
+        return True
+    near_elbow = min((c - e).length for e in ELBOWS) < 0.10
+    return near_elbow and wsum(w, ["LeftLowerArm", "RightLowerArm"]) > 0.3
+shirt = shell("Grandma_Shirt", shirt_pred, 0.007, MAT_SHIRT)
+
+# Hair: grey, pulled back from a receding hairline into a low ponytail.
+MAT_HAIR = make_material("Grandma_Hair", (0.62, 0.62, 0.64))
+def hairline(ath):
+    if ath < 0.9:
+        return 1.588 - 0.025 * (ath / 0.9) ** 2
+    if ath < 1.85:
+        return 1.548
+    t = (ath - 1.85) / (math.pi - 1.85)
+    return 1.548 - 0.090 * t
+def hair_pred(c, w):
+    if c.z < 1.40:
+        return False
+    th = math.atan2(c.x, -(c.y - head_axis_y(c.z)))
+    return c.z > hairline(abs(th))
+def smooth_hairline(v):
+    # Snap the open edge of the hair onto the hairline curve itself.
+    th = math.atan2(v.co.x, -(v.co.y - head_axis_y(v.co.z)))
+    v.co = head_surface(hairline(abs(th)), th, out=0.006)
+hair = shell("Grandma_Hair", hair_pred, 0.006, MAT_HAIR, boundary_fix=smooth_hairline)
+
+# Ponytail: a tapered tube from the nape, kept clear of the neck and back.
+MAT_PONY = make_material("Grandma_Ponytail", (0.62, 0.62, 0.64))
+body_cos = [v.co for v in body.data.vertices]
+def back_surface(z):
+    ys = [c.y for c in body_cos if abs(c.x) < 0.03 and abs(c.z - z) < 0.015]
+    return max(ys) if ys else 0.1
+anchor = head_surface(1.488, math.pi, out=0.004)
+plan = [(anchor.y - 0.004, 1.490, 0.017), (anchor.y + 0.022, 1.468, 0.021),
+        (anchor.y + 0.032, 1.425, 0.019), (anchor.y + 0.034, 1.375, 0.013),
+        (anchor.y + 0.030, 1.335, 0.004)]
+pts, rads = [], []
+for y, z, r in plan:
+    y = max(y, back_surface(z) + r + 0.008) if z < 1.47 else y
+    pts.append((0.0, y, z)); rads.append(r)
+pbm = bmesh.new()
+pony_rings = tube(pbm, pts, rads, sides=10)
+ponytail = rigid_object("Grandma_Ponytail", pbm, MAT_PONY)
+# Ponytail UVs: u around the tube, v from the tie (0) to the tip (1).
+puv = ponytail.data.uv_layers.new(name="UVMap").data
+pz = [p[2] for p in pts]
+for p in ponytail.data.polygons:
+    us = []
+    for li in p.loop_indices:
+        vi = ponytail.data.loops[li].vertex_index
+        us.append((vi % 10) / 10.0)
+    if max(us) - min(us) > 0.5:
+        us = [u + 1.0 if u < 0.5 else u for u in us]
+    for li, u in zip(p.loop_indices, us):
+        co = ponytail.data.vertices[ponytail.data.loops[li].vertex_index].co
+        puv[li].uv = (u / 1.1, (pz[0] - co.z) / (pz[0] - pz[-1]))
+
+# Glasses: round wire frames, a small arched bridge, arms back over the ears.
+MAT_GLASSES = make_material("Grandma_Glasses", (0.42, 0.33, 0.16))
+gbm = bmesh.new()
+LENS_R, WIRE = 0.0175, 0.0013
+EYE_Z = 1.536
+for s in (1, -1):
+    eye = head_surface(EYE_Z, 0.36 * s)
+    yaw = 0.14 * s                                    # slight wrap with the face
+    c = Vector((0.034 * s, min(eye.y, head_surface(EYE_Z + 0.02, 0.36 * s).y) - 0.013, EYE_Z))
+    ring = []
+    for k in range(16):
+        a = 2 * math.pi * k / 16
+        local = Vector((math.cos(a) * LENS_R, 0, math.sin(a) * LENS_R))
+        ring.append(c + Matrix.Rotation(yaw, 3, "Z") @ local)
+    tube(gbm, ring, WIRE, sides=4, closed=True)
+    outer = c + Matrix.Rotation(yaw, 3, "Z") @ Vector((LENS_R * s, 0, 0.002))
+    temple = [outer,
+              Vector((0.084 * s, outer.y + 0.035, EYE_Z + 0.002)),
+              Vector((0.087 * s, -0.005, EYE_Z - 0.004)),
+              Vector((0.086 * s, 0.030, EYE_Z - 0.020)),
+              Vector((0.082 * s, 0.040, EYE_Z - 0.040))]
+    tube(gbm, temple, WIRE, sides=4)
+bridge_y = head_surface(EYE_Z + 0.004, 0.0).y - 0.006
+tube(gbm, [Vector((0.0165, bridge_y + 0.004, EYE_Z + 0.004)), Vector((0, bridge_y, EYE_Z + 0.009)),
+           Vector((-0.0165, bridge_y + 0.004, EYE_Z + 0.004))], WIRE, sides=4)
+glasses = rigid_object("Grandma_Glasses", gbm, MAT_GLASSES)
+
 tris = sum(len(p.vertices) - 2 for p in body.data.polygons)
 stris = sum(len(p.vertices) - 2 for p in skirt.data.polygons) if skirt else 0
+extra = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in (shirt, hair, ponytail, glasses)}
+print("ACCESSORY_TRIS", extra)
 print(f"GRANDMA body_tris={tris} skirt_tris={stris} verts={len(body.data.vertices)} "
       f"bones={len(BONES)} unweighted_fixed={unweighted}")
 
@@ -593,7 +804,7 @@ def mix(img, color, w):
     w = np.clip(w, 0, 1)[..., None]
     img[:] = img * (1 - w) + np.array(color, np.float32) * w
 
-SKIN = (0.80, 0.67, 0.59)
+SKIN = (0.80, 0.71, 0.67)          # pallid; the grade adds saturation back
 
 def skin_base(p):
     """Shared elderly skin: pale, mottled, with blotchy redness and age spots."""
@@ -607,11 +818,26 @@ def skin_base(p):
     mix(img, (0.60, 0.45, 0.36), 0.35 * np.clip((spots - 2.1) * 3.0, 0, 1))         # sparse, faint age spots
     return img
 
-def save_png(img, name):
+BAYER4 = (np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16 - 0.5
+
+def grade(img):
+    """PS2 retro-horror grade: punchier saturation and contrast, crushed
+    shadows, then 5-bit-per-channel quantisation with ordered dithering."""
+    lum = img @ np.array([0.299, 0.587, 0.114], np.float32)
+    img = lum[..., None] + (img - lum[..., None]) * 1.45          # saturation
+    img = (img - 0.42) * 1.32 + 0.40                              # contrast
+    img = np.clip(img, 0, 1) ** 1.08                              # slightly crushed shadows
+    h, w = img.shape[:2]
+    dither = np.tile(BAYER4, (h // 4 + 1, w // 4 + 1))[:h, :w][..., None]
+    levels = 31
+    return np.clip(np.round(img * levels + dither) / levels, 0, 1)
+
+def save_png(img, name, w=None):
+    img = grade(img)
     res = img.shape[0]
-    im = bpy.data.images.new(name, res, res, alpha=False)
-    rgba = np.concatenate([np.clip(img, 0, 1), np.ones((res, res, 1), np.float32)], -1)
-    im.pixels.foreach_set(rgba.ravel())
+    im = bpy.data.images.new(name, img.shape[1], res, alpha=False)
+    rgba = np.concatenate([np.clip(img, 0, 1), np.ones(img.shape[:2] + (1,), np.float32)], -1)
+    im.pixels.foreach_set(rgba.astype(np.float32).ravel())
     im.filepath_raw = os.path.join(TEX_DIR, name + ".png")
     im.file_format = "PNG"
     im.save()
@@ -631,8 +857,11 @@ U = TH * R_FACE                           # metres across the face (signed)
 AU = np.abs(U)
 front_mask = np.cos(TH) > 0
 
-# Shading baked in, PS2 style: deep eye sockets.
-mix(head_img, (0.45, 0.33, 0.33), 0.35 * gauss(ATH - 0.36, 0.17) * gauss(Z - 1.533, 0.016) * front_mask)
+# Shading baked in, PS2 style: deep, crater-like eye sockets. A wide soft
+# shadow plus a tighter, darker ring hugging each eye makes them read as
+# sunken holes even though the eyes themselves are painted flat.
+mix(head_img, (0.30, 0.20, 0.22), 0.45 * gauss(ATH - 0.36, 0.20) * gauss(Z - 1.536, 0.018) * front_mask)
+mix(head_img, (0.12, 0.07, 0.09), 0.60 * gauss(ATH - 0.36, 0.12) * gauss(Z - 1.535, 0.010) * front_mask)
 # Rosy cheeks, ears and nose tip; pale, slightly shiny scalp.
 mix(head_img, (0.85, 0.55, 0.52), 0.22 * gauss(ATH - 0.62, 0.16) * gauss(Z - 1.49, 0.018))
 mix(head_img, (0.82, 0.55, 0.50), 0.30 * gauss(ATH - math.pi / 2 - 0.08, 0.14) * gauss(Z - 1.503, 0.03))
@@ -649,9 +878,11 @@ for s in (1, -1):
     mix(head_img, (0.30, 0.20, 0.20), 0.55 * gauss(shape - 1.0, 0.35) * side)            # lid rim
     mix(head_img, (0.62, 0.48, 0.48), 0.45 * gauss(eu, 0.014) * gauss(ez + 0.0085, 0.0035) * side)  # eye bag
     mix(head_img, (0.66, 0.50, 0.46), 0.35 * gauss(eu, 0.014) * gauss(ez - 0.0085, 0.003) * side)   # hooded lid fold
-    head_img[eye] = (0.76, 0.72, 0.62)
+    # Dim, shadowed sclera (darker toward the lids) so the eyes sit in the dark.
+    head_img[eye] = (0.58, 0.53, 0.46)
+    mix(head_img, (0.20, 0.14, 0.14), 0.55 * np.clip(shape, 0, 1) * eye)
     iris = eye & ((eu + 0.001) ** 2 + (ez - 0.0006) ** 2 < 0.0047 ** 2)
-    head_img[iris] = (0.30, 0.27, 0.23)
+    head_img[iris] = (0.22, 0.20, 0.17)
     pupil = eye & ((eu + 0.001) ** 2 + (ez - 0.0006) ** 2 < 0.0018 ** 2)
     head_img[pupil] = (0.05, 0.04, 0.04)
     upper = side & (shape < 1.35) & (ez > 0) & ~eye
@@ -681,8 +912,12 @@ lip_w = 0.022
 lips = (AU < lip_w) & front_mask
 upper_lip = lips & (Z > mouth_line) & (Z < mouth_line + 0.0035 * (1 - (AU / lip_w) ** 2))
 lower_lip = lips & (Z < mouth_line) & (Z > mouth_line - 0.0050 * (1 - (AU / lip_w) ** 2))
-mix(head_img, (0.62, 0.42, 0.42), 0.85 * (upper_lip | lower_lip))
-mix(head_img, (0.25, 0.10, 0.10), 0.95 * gauss(Z - mouth_line, 0.0007) * (AU < lip_w + 0.002) * front_mask)
+mix(head_img, (0.88, 0.42, 0.58), 0.92 * (upper_lip | lower_lip))         # pink lipstick
+mix(head_img, (0.70, 0.30, 0.45), 0.50 * lower_lip * (Z < mouth_line - 0.0025))  # darker lower edge
+mix(head_img, (0.30, 0.08, 0.14), 0.95 * gauss(Z - mouth_line, 0.0007) * (AU < lip_w + 0.002) * front_mask)
+# Grey tint on the scalp under the hair shell, so any gap reads as hair.
+for_hair = np.array([Z[i, j] > hairline(abs(TH[i, j])) - 0.004 for i, j in np.ndindex(Z.shape)]).reshape(Z.shape)
+mix(head_img, (0.55, 0.55, 0.57), 0.85 * for_hair)
 # Fine vertical lip wrinkles above the mouth.
 mix(head_img, (0.60, 0.45, 0.42), 0.25 * (np.sin(U * 900) > 0.6) * (Z > mouth_line + 0.003)
     * (Z < mouth_line + 0.009) * (AU < 0.018) * front_mask)
@@ -717,6 +952,12 @@ for s in (1, -1):
     # Toenails area / feet: slightly redder heels and toes.
     ft = np.sqrt((X - 0.105 * s) ** 2 + (Y + 0.17) ** 2 + (Z - 0.03) ** 2)
     mix(body_img, (0.82, 0.58, 0.54), 0.35 * gauss(ft, 0.035))
+# Stockings: sheer, slightly darker tan nylon below the knee-length skirt,
+# with a darker reinforced toe; plain black shoes painted on the feet.
+legs = (Z < 0.62) & (np.abs(X) < 0.2)
+mix(body_img, (0.62, 0.48, 0.42), 0.55 * legs)
+mix(body_img, (0.06, 0.05, 0.05), 1.0 * legs * (Z < 0.075))
+mix(body_img, (0.30, 0.26, 0.24), 0.8 * legs * (np.abs(Z - 0.075) < 0.004))   # shoe top edge
 # Neck wrinkles (matching the head texture's skin, just below the jaw).
 mix(body_img, (0.58, 0.45, 0.42), 0.25 * (np.sin(Z * 700) > 0.85) * (Z > 1.32) * (Z < 1.395) * (Y < 0.02))
 body_img = dilate(body_img, bmask)
@@ -734,6 +975,81 @@ if skirt:
     sk = dilate(sk, smask)
     IMG_SKIRT = save_png(sk, "Grandma_Skirt")
 
+# --- Shirt: dusty-rose blouse, cream lace collar, pearl buttons, small print ----
+SH_RES = 256
+shp, shmask = rasterize(shirt.data, None, SH_RES)
+X, Y, Z = shp[..., 0], shp[..., 1], shp[..., 2]
+sh = np.empty(shp.shape, np.float32); sh[:] = (0.80, 0.50, 0.58)
+sh *= (1 + 0.05 * wave_noise(shp, 400, seed=21) + 0.04 * wave_noise(shp, 60, seed=22))[..., None]
+# Small calico print: cream five-petal flowers with yellow centres on a 3D
+# lattice (so it is seamless across UV islands), plus offset green leaf dots.
+def lattice(p, cell, offset=0.0):
+    c = p / cell + offset
+    return (c - np.floor(c) - 0.5) * cell          # local offset within each cell (m)
+loc = lattice(shp, 0.026)
+r = np.linalg.norm(loc, axis=-1)
+ang = np.arctan2(loc[..., 2], loc[..., 0] + loc[..., 1])
+petal = r < 0.0065 * (0.75 + 0.25 * np.cos(5 * ang))
+mix(sh, (0.96, 0.90, 0.82), 0.95 * petal)
+mix(sh, (0.92, 0.75, 0.30), 0.95 * (r < 0.0018))
+leaf = np.linalg.norm(lattice(shp, 0.026, 0.5), axis=-1) < 0.0035
+mix(sh, (0.40, 0.52, 0.36), 0.80 * leaf)
+# Folds baked in: under the bust, armpits, and the tuck at the waist.
+mix(sh, (0.35, 0.18, 0.24), 0.45 * gauss(Z - 1.085, 0.020) * (Y < -0.04))
+for s in (1, -1):
+    mix(sh, (0.35, 0.18, 0.24), 0.40 * gauss(np.sqrt((X - 0.16 * s) ** 2 + (Y - 0.04) ** 2 + (Z - 1.18) ** 2), 0.05))
+mix(sh, (0.35, 0.18, 0.24), 0.35 * np.clip((0.97 - Z) / 0.05, 0, 1))
+# Collar: a cream lace band along the neckline.
+nl = np.array([neckline_z(y) for y in Y.ravel()]).reshape(Y.shape)
+collar = (Z > nl - 0.018)
+mix(sh, (0.93, 0.89, 0.82), 0.95 * collar)
+mix(sh, (0.70, 0.62, 0.58), 0.6 * collar * (np.sin(X * 900 + Y * 900) > 0.7))   # lace holes
+# Button placket and pearl buttons down the front.
+front_c = (Y < 0) & (np.abs(X) < 0.012)
+mix(sh, (0.62, 0.36, 0.44), 0.6 * front_c * (np.abs(np.abs(X) - 0.010) < 0.0015))
+for bz in np.arange(0.96, 1.27, 0.05):
+    d = np.sqrt(X ** 2 + (Z - bz) ** 2)
+    mix(sh, (0.96, 0.95, 0.90), 1.0 * (d < 0.0055) * (Y < 0))
+    mix(sh, (0.40, 0.35, 0.35), 0.8 * (np.abs(d - 0.0055) < 0.0012) * (Y < 0))
+# Sleeve cuffs.
+for e in ELBOWS:
+    d = np.linalg.norm(shp - np.array(e), axis=-1)
+    mix(sh, (0.93, 0.89, 0.82), 0.9 * (d > 0.075) * (d < 0.11) * (np.abs(X) > 0.30))
+sh = dilate(sh, shmask)
+IMG_SHIRT = save_png(sh, "Grandma_Shirt")
+
+# --- Hair: grey strands flowing back to the ponytail ----------------------------
+HR_RES = 256
+hrp, hrmask = rasterize(hair.data, None, HR_RES)
+hc = Vector((0, -0.02, 1.52))
+A = (anchor - hc).normalized()
+A_np = np.array(A, np.float32)
+up2 = Vector((0, 0, 1)) - A * A.z; up2.normalize()
+side2 = A.cross(up2)
+d = hrp - np.array(hc, np.float32)
+d /= np.linalg.norm(d, axis=-1, keepdims=True) + 1e-6
+q = d - (d @ A_np)[..., None] * A_np
+strand = np.arctan2(q @ np.array(side2, np.float32), q @ np.array(up2, np.float32))
+along = d @ A_np
+hr = np.empty(hrp.shape, np.float32); hr[:] = (0.68, 0.68, 0.70)
+streak = np.sin(strand * 55 + 1.5 * wave_noise(hrp, 30, seed=31)) * 0.5 + 0.5   # low freq: no moire at 256px
+hr *= (0.78 + 0.30 * streak + 0.06 * wave_noise(hrp, 300, seed=32))[..., None]
+mix(hr, (0.86, 0.84, 0.78), 0.35 * np.clip(wave_noise(hrp, 25, seed=33), 0, 1))  # yellowed white streaks
+mix(hr, (0.30, 0.30, 0.33), 0.40 * np.clip((along - 0.80) / 0.2, 0, 1))         # shadow at the gather
+hr = dilate(hr, hrmask)
+IMG_HAIR = save_png(hr, "Grandma_Hair")
+
+# --- Ponytail: strands down its length, dark red hair tie at the top -----------
+pv = np.linspace(0, 1, 128)[:, None] * np.ones((1, 64))
+pu = np.ones((128, 1)) * np.linspace(0, 1, 64)[None, :]
+pt = np.empty((128, 64, 3), np.float32); pt[:] = (0.68, 0.68, 0.70)
+pt *= (0.80 + 0.30 * (np.sin(pu * 2 * math.pi * 9 + np.sin(pv * 9) * 1.5) * 0.5 + 0.5))[..., None]
+mix(pt, (0.86, 0.84, 0.78), 0.3 * (np.sin(pu * 2 * math.pi * 4 + 1) > 0.7))
+mix(pt, (0.42, 0.42, 0.45), 0.5 * np.clip((pv - 0.8) / 0.2, 0, 1))              # thinning, darker tip
+mix(pt, (0.55, 0.08, 0.12), 1.0 * (pv < 0.10))                                    # hair tie
+pt = pt[::-1]                                                                     # row 0 = v 0
+IMG_PONY = save_png(pt, "Grandma_Ponytail")
+
 def attach_texture(mat, img):
     nt = mat.node_tree
     tex = nt.nodes.new("ShaderNodeTexImage")
@@ -748,6 +1064,9 @@ attach_texture(MAT_HEAD, IMG_HEAD)
 attach_texture(MAT_BODY, IMG_BODY)
 if skirt:
     attach_texture(MAT_SKIRT, IMG_SKIRT)
+attach_texture(MAT_SHIRT, IMG_SHIRT)
+attach_texture(MAT_HAIR, IMG_HAIR)
+attach_texture(MAT_PONY, IMG_PONY)
 
 # ─── Export ───────────────────────────────────────────────────────────────────
 os.makedirs(os.path.dirname(os.path.abspath(OUT_FBX)), exist_ok=True)
