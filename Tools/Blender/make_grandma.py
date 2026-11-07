@@ -25,6 +25,7 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 OUT_FBX = argv[0] if argv else os.path.join(os.getcwd(), "Grandma.fbx")
 PREVIEW_DIR = argv[1] if len(argv) > 1 else None
 MAKE_SKIRT = True
+MAKE_HAIR = False   # bald; set True for grey hair pulled back into a ponytail
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -644,56 +645,58 @@ def shirt_pred(c, w):
     return near_elbow and wsum(w, ["LeftLowerArm", "RightLowerArm"]) > 0.3
 shirt = shell("Grandma_Shirt", shirt_pred, 0.007, MAT_SHIRT)
 
-# Hair: grey, pulled back from a receding hairline into a low ponytail.
-MAT_HAIR = make_material("Grandma_Hair", (0.62, 0.62, 0.64))
-def hairline(ath):
-    if ath < 0.9:
-        return 1.588 - 0.025 * (ath / 0.9) ** 2
-    if ath < 1.85:
-        return 1.548
-    t = (ath - 1.85) / (math.pi - 1.85)
-    return 1.548 - 0.090 * t
-def hair_pred(c, w):
-    if c.z < 1.40:
-        return False
-    th = math.atan2(c.x, -(c.y - head_axis_y(c.z)))
-    return c.z > hairline(abs(th))
-def smooth_hairline(v):
-    # Snap the open edge of the hair onto the hairline curve itself.
-    th = math.atan2(v.co.x, -(v.co.y - head_axis_y(v.co.z)))
-    v.co = head_surface(hairline(abs(th)), th, out=0.006)
-hair = shell("Grandma_Hair", hair_pred, 0.006, MAT_HAIR, boundary_fix=smooth_hairline)
-
-# Ponytail: a tapered tube from the nape, kept clear of the neck and back.
-MAT_PONY = make_material("Grandma_Ponytail", (0.62, 0.62, 0.64))
 body_cos = [v.co for v in body.data.vertices]
-def back_surface(z):
-    ys = [c.y for c in body_cos if abs(c.x) < 0.03 and abs(c.z - z) < 0.015]
-    return max(ys) if ys else 0.1
-anchor = head_surface(1.488, math.pi, out=0.004)
-plan = [(anchor.y - 0.004, 1.490, 0.017), (anchor.y + 0.022, 1.468, 0.021),
-        (anchor.y + 0.032, 1.425, 0.019), (anchor.y + 0.034, 1.375, 0.013),
-        (anchor.y + 0.030, 1.335, 0.004)]
-pts, rads = [], []
-for y, z, r in plan:
-    y = max(y, back_surface(z) + r + 0.008) if z < 1.47 else y
-    pts.append((0.0, y, z)); rads.append(r)
-pbm = bmesh.new()
-pony_rings = tube(pbm, pts, rads, sides=10)
-ponytail = rigid_object("Grandma_Ponytail", pbm, MAT_PONY)
-# Ponytail UVs: u around the tube, v from the tie (0) to the tip (1).
-puv = ponytail.data.uv_layers.new(name="UVMap").data
-pz = [p[2] for p in pts]
-for p in ponytail.data.polygons:
-    us = []
-    for li in p.loop_indices:
-        vi = ponytail.data.loops[li].vertex_index
-        us.append((vi % 10) / 10.0)
-    if max(us) - min(us) > 0.5:
-        us = [u + 1.0 if u < 0.5 else u for u in us]
-    for li, u in zip(p.loop_indices, us):
-        co = ponytail.data.vertices[ponytail.data.loops[li].vertex_index].co
-        puv[li].uv = (u / 1.1, (pz[0] - co.z) / (pz[0] - pz[-1]))
+hair = ponytail = None
+if MAKE_HAIR:
+    # Hair: grey, pulled back from a receding hairline into a low ponytail.
+    MAT_HAIR = make_material("Grandma_Hair", (0.62, 0.62, 0.64))
+    def hairline(ath):
+        if ath < 0.9:
+            return 1.588 - 0.025 * (ath / 0.9) ** 2
+        if ath < 1.85:
+            return 1.548
+        t = (ath - 1.85) / (math.pi - 1.85)
+        return 1.548 - 0.090 * t
+    def hair_pred(c, w):
+        if c.z < 1.40:
+            return False
+        th = math.atan2(c.x, -(c.y - head_axis_y(c.z)))
+        return c.z > hairline(abs(th))
+    def smooth_hairline(v):
+        # Snap the open edge of the hair onto the hairline curve itself.
+        th = math.atan2(v.co.x, -(v.co.y - head_axis_y(v.co.z)))
+        v.co = head_surface(hairline(abs(th)), th, out=0.006)
+    hair = shell("Grandma_Hair", hair_pred, 0.006, MAT_HAIR, boundary_fix=smooth_hairline)
+
+    # Ponytail: a tapered tube from the nape, kept clear of the neck and back.
+    MAT_PONY = make_material("Grandma_Ponytail", (0.62, 0.62, 0.64))
+    def back_surface(z):
+        ys = [c.y for c in body_cos if abs(c.x) < 0.03 and abs(c.z - z) < 0.015]
+        return max(ys) if ys else 0.1
+    anchor = head_surface(1.488, math.pi, out=0.004)
+    plan = [(anchor.y - 0.004, 1.490, 0.017), (anchor.y + 0.022, 1.468, 0.021),
+            (anchor.y + 0.032, 1.425, 0.019), (anchor.y + 0.034, 1.375, 0.013),
+            (anchor.y + 0.030, 1.335, 0.004)]
+    pts, rads = [], []
+    for y, z, r in plan:
+        y = max(y, back_surface(z) + r + 0.008) if z < 1.47 else y
+        pts.append((0.0, y, z)); rads.append(r)
+    pbm = bmesh.new()
+    pony_rings = tube(pbm, pts, rads, sides=10)
+    ponytail = rigid_object("Grandma_Ponytail", pbm, MAT_PONY)
+    # Ponytail UVs: u around the tube, v from the tie (0) to the tip (1).
+    puv = ponytail.data.uv_layers.new(name="UVMap").data
+    pz = [p[2] for p in pts]
+    for p in ponytail.data.polygons:
+        us = []
+        for li in p.loop_indices:
+            vi = ponytail.data.loops[li].vertex_index
+            us.append((vi % 10) / 10.0)
+        if max(us) - min(us) > 0.5:
+            us = [u + 1.0 if u < 0.5 else u for u in us]
+        for li, u in zip(p.loop_indices, us):
+            co = ponytail.data.vertices[ponytail.data.loops[li].vertex_index].co
+            puv[li].uv = (u / 1.1, (pz[0] - co.z) / (pz[0] - pz[-1]))
 
 # Glasses: round wire frames, a small arched bridge, arms back over the ears.
 MAT_GLASSES = make_material("Grandma_Glasses", (0.42, 0.33, 0.16))
@@ -805,7 +808,7 @@ attach_to_rig(shoes)
 
 tris = sum(len(p.vertices) - 2 for p in body.data.polygons)
 stris = sum(len(p.vertices) - 2 for p in skirt.data.polygons) if skirt else 0
-extra = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in (shirt, hair, ponytail, glasses, shoes)}
+extra = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in (shirt, hair, ponytail, glasses, shoes) if o}
 print("ACCESSORY_TRIS", extra)
 print(f"GRANDMA body_tris={tris} skirt_tris={stris} verts={len(body.data.vertices)} "
       f"bones={len(BONES)} unweighted_fixed={unweighted}")
@@ -821,10 +824,11 @@ TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(OUT_FBX)), "Textures")
 os.makedirs(TEX_DIR, exist_ok=True)
 RNG = np.random.default_rng(7)
 
-def rasterize(mesh, mat_index, res):
-    """Return (positions[res,res,3], mask[res,res]) for faces of one material.
-    Row 0 is v = 0 (Blender image pixel order)."""
+def rasterize(mesh, mat_index, res, want_normals=False):
+    """Return (positions[res,res,3], mask[res,res]) for faces of one material,
+    plus smooth normals[res,res,3] if want_normals. Row 0 is v = 0."""
     pos = np.zeros((res, res, 3), np.float32)
+    nrm = np.zeros((res, res, 3), np.float32)
     mask = np.zeros((res, res), bool)
     uvl = mesh.uv_layers.active.data
     mesh.calc_loop_triangles()
@@ -852,7 +856,58 @@ def rasterize(mesh, mat_index, res):
         iy, ix = np.nonzero(inside)
         pos[iy + y0, ix + x0] = p[iy, ix]
         mask[iy + y0, ix + x0] = True
-    return pos, mask
+        if want_normals:
+            Nv = np.array([mesh.vertices[v].normal for v in lt.vertices], np.float64)
+            n = w0[..., None] * Nv[0] + w1[..., None] * Nv[1] + w2[..., None] * Nv[2]
+            n /= np.linalg.norm(n, axis=-1, keepdims=True) + 1e-9
+            nrm[iy + y0, ix + x0] = n[iy, ix]
+    return (pos, mask, nrm) if want_normals else (pos, mask)
+
+from mathutils.bvhtree import BVHTree
+BODY_BVH = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
+
+def occlusion(pos, nrm, mask, rays=16, dist=0.16, step=2):
+    """Ambient occlusion per texel: fraction of hemisphere rays that hit the
+    body within `dist`. Computed every `step` texels, then softened."""
+    res = mask.shape[0]
+    rng = np.random.default_rng(3)
+    u1, u2 = rng.random(rays), rng.random(rays)
+    r_, phi = np.sqrt(u1), 2 * np.pi * u2                       # cosine-weighted
+    local = np.stack([r_ * np.cos(phi), r_ * np.sin(phi), np.sqrt(1 - u1)], -1)
+    ao = np.zeros(mask.shape, np.float32)
+    for by in range(0, res, step):
+        for bx in range(0, res, step):
+            blk = mask[by:by + step, bx:bx + step]
+            if not blk.any():
+                continue
+            iy, ix = np.argwhere(blk)[0]
+            n = Vector(nrm[by + iy, bx + ix])
+            if n.length < 0.5:
+                continue
+            p = Vector(pos[by + iy, bx + ix]) + n * 0.004
+            t = n.orthogonal().normalized()
+            b = n.cross(t)
+            hits = sum(1 for d in local
+                       if BODY_BVH.ray_cast(p, t * d[0] + b * d[1] + n * d[2], dist)[0] is not None)
+            ao[by:by + step, bx:bx + step] = hits / rays
+    for _ in range(2):                                           # soften
+        acc = ao.copy(); cnt = np.ones_like(ao)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            m = np.roll(mask, (dy, dx), (0, 1))
+            acc += np.roll(ao, (dy, dx), (0, 1)) * m
+            cnt += m
+        ao = np.where(mask, acc / cnt, ao)
+    return ao
+
+def roast(img, nrm, ao):
+    """Reddened, almost roasted skin, much stronger where light doesn't reach:
+    occluded creases (armpits, under the chin, neck, between the legs, behind
+    the knees) and downward-facing skin."""
+    down = np.clip(-nrm[..., 2], 0, 1)
+    shade = np.clip(ao * 2.4 + 0.55 * down ** 1.4, 0, 1)
+    mix(img, (0.88, 0.48, 0.40), 0.48)                          # sunburnt overall
+    mix(img, (0.68, 0.20, 0.13), 0.85 * shade)                  # roasted red in shadow
+    mix(img, (0.28, 0.06, 0.04), 0.75 * shade ** 2.0)           # charred crimson in the deepest creases
 
 def dilate(img, mask, steps=6):
     """Bleed colour outward from filled texels so mip/filtering has no black seams."""
@@ -927,8 +982,9 @@ def save_png(img, name, w=None):
 
 # --- Head ---------------------------------------------------------------------
 HEAD_RES = 256
-hp, hmask = rasterize(body.data, 0, HEAD_RES)
+hp, hmask, hn = rasterize(body.data, 0, HEAD_RES, want_normals=True)
 head_img = skin_base(hp)
+roast(head_img, hn, occlusion(hp, hn, hmask))
 X, Y, Z = hp[..., 0], hp[..., 1], hp[..., 2]
 AY = np.array([head_axis_y(z) for z in Z.ravel()]).reshape(Z.shape)
 TH = np.arctan2(X, -(Y - AY))            # 0 at the face, matches the sculpt
@@ -996,9 +1052,10 @@ lower_lip = lips & (Z < mouth_line) & (Z > mouth_line - 0.0050 * (1 - (AU / lip_
 mix(head_img, (0.88, 0.42, 0.58), 0.92 * (upper_lip | lower_lip))         # pink lipstick
 mix(head_img, (0.70, 0.30, 0.45), 0.50 * lower_lip * (Z < mouth_line - 0.0025))  # darker lower edge
 mix(head_img, (0.30, 0.08, 0.14), 0.95 * gauss(Z - mouth_line, 0.0007) * (AU < lip_w + 0.002) * front_mask)
-# Grey tint on the scalp under the hair shell, so any gap reads as hair.
-for_hair = np.array([Z[i, j] > hairline(abs(TH[i, j])) - 0.004 for i, j in np.ndindex(Z.shape)]).reshape(Z.shape)
-mix(head_img, (0.55, 0.55, 0.57), 0.85 * for_hair)
+if MAKE_HAIR:
+    # Grey tint on the scalp under the hair shell, so any gap reads as hair.
+    for_hair = np.array([Z[i, j] > hairline(abs(TH[i, j])) - 0.004 for i, j in np.ndindex(Z.shape)]).reshape(Z.shape)
+    mix(head_img, (0.55, 0.55, 0.57), 0.85 * for_hair)
 # Fine vertical lip wrinkles above the mouth.
 mix(head_img, (0.60, 0.45, 0.42), 0.25 * (np.sin(U * 900) > 0.6) * (Z > mouth_line + 0.003)
     * (Z < mouth_line + 0.009) * (AU < 0.018) * front_mask)
@@ -1012,8 +1069,9 @@ IMG_HEAD = save_png(head_img, "Grandma_Head")
 
 # --- Body ---------------------------------------------------------------------
 BODY_RES = 256
-bp, bmask = rasterize(body.data, 1, BODY_RES)
+bp, bmask, bn = rasterize(body.data, 1, BODY_RES, want_normals=True)
 body_img = skin_base(bp)
+roast(body_img, bn, occlusion(bp, bn, bmask))
 X, Y, Z = bp[..., 0], bp[..., 1], bp[..., 2]
 # Knees and elbows: redder, slightly wrinkled.
 for s in (1, -1):
@@ -1036,7 +1094,7 @@ for s in (1, -1):
 # Stockings: sheer, slightly darker tan nylon below the knee-length skirt,
 # with a darker reinforced toe; plain black shoes painted on the feet.
 legs = (Z < 0.62) & (np.abs(X) < 0.2)
-mix(body_img, (0.62, 0.48, 0.42), 0.55 * legs)
+mix(body_img, (0.70, 0.45, 0.40), 0.18 * legs)                     # very sheer: the reddened skin shows through
 mix(body_img, (0.06, 0.05, 0.05), 1.0 * legs * (Z < 0.075))
 mix(body_img, (0.30, 0.26, 0.24), 0.8 * legs * (np.abs(Z - 0.075) < 0.004))   # shoe top edge
 # Neck wrinkles (matching the head texture's skin, just below the jaw).
@@ -1099,37 +1157,38 @@ for e in ELBOWS:
 sh = dilate(sh, shmask)
 IMG_SHIRT = save_png(sh, "Grandma_Shirt")
 
-# --- Hair: grey strands flowing back to the ponytail ----------------------------
-HR_RES = 256
-hrp, hrmask = rasterize(hair.data, None, HR_RES)
-hc = Vector((0, -0.02, 1.52))
-A = (anchor - hc).normalized()
-A_np = np.array(A, np.float32)
-up2 = Vector((0, 0, 1)) - A * A.z; up2.normalize()
-side2 = A.cross(up2)
-d = hrp - np.array(hc, np.float32)
-d /= np.linalg.norm(d, axis=-1, keepdims=True) + 1e-6
-q = d - (d @ A_np)[..., None] * A_np
-strand = np.arctan2(q @ np.array(side2, np.float32), q @ np.array(up2, np.float32))
-along = d @ A_np
-hr = np.empty(hrp.shape, np.float32); hr[:] = (0.68, 0.68, 0.70)
-streak = np.sin(strand * 55 + 1.5 * wave_noise(hrp, 30, seed=31)) * 0.5 + 0.5   # low freq: no moire at 256px
-hr *= (0.78 + 0.30 * streak + 0.06 * wave_noise(hrp, 300, seed=32))[..., None]
-mix(hr, (0.86, 0.84, 0.78), 0.35 * np.clip(wave_noise(hrp, 25, seed=33), 0, 1))  # yellowed white streaks
-mix(hr, (0.30, 0.30, 0.33), 0.40 * np.clip((along - 0.80) / 0.2, 0, 1))         # shadow at the gather
-hr = dilate(hr, hrmask)
-IMG_HAIR = save_png(hr, "Grandma_Hair")
+if MAKE_HAIR:
+    # --- Hair: grey strands flowing back to the ponytail ----------------------------
+    HR_RES = 256
+    hrp, hrmask = rasterize(hair.data, None, HR_RES)
+    hc = Vector((0, -0.02, 1.52))
+    A = (anchor - hc).normalized()
+    A_np = np.array(A, np.float32)
+    up2 = Vector((0, 0, 1)) - A * A.z; up2.normalize()
+    side2 = A.cross(up2)
+    d = hrp - np.array(hc, np.float32)
+    d /= np.linalg.norm(d, axis=-1, keepdims=True) + 1e-6
+    q = d - (d @ A_np)[..., None] * A_np
+    strand = np.arctan2(q @ np.array(side2, np.float32), q @ np.array(up2, np.float32))
+    along = d @ A_np
+    hr = np.empty(hrp.shape, np.float32); hr[:] = (0.68, 0.68, 0.70)
+    streak = np.sin(strand * 55 + 1.5 * wave_noise(hrp, 30, seed=31)) * 0.5 + 0.5   # low freq: no moire at 256px
+    hr *= (0.78 + 0.30 * streak + 0.06 * wave_noise(hrp, 300, seed=32))[..., None]
+    mix(hr, (0.86, 0.84, 0.78), 0.35 * np.clip(wave_noise(hrp, 25, seed=33), 0, 1))  # yellowed white streaks
+    mix(hr, (0.30, 0.30, 0.33), 0.40 * np.clip((along - 0.80) / 0.2, 0, 1))         # shadow at the gather
+    hr = dilate(hr, hrmask)
+    IMG_HAIR = save_png(hr, "Grandma_Hair")
 
-# --- Ponytail: strands down its length, dark red hair tie at the top -----------
-pv = np.linspace(0, 1, 128)[:, None] * np.ones((1, 64))
-pu = np.ones((128, 1)) * np.linspace(0, 1, 64)[None, :]
-pt = np.empty((128, 64, 3), np.float32); pt[:] = (0.68, 0.68, 0.70)
-pt *= (0.80 + 0.30 * (np.sin(pu * 2 * math.pi * 9 + np.sin(pv * 9) * 1.5) * 0.5 + 0.5))[..., None]
-mix(pt, (0.86, 0.84, 0.78), 0.3 * (np.sin(pu * 2 * math.pi * 4 + 1) > 0.7))
-mix(pt, (0.42, 0.42, 0.45), 0.5 * np.clip((pv - 0.8) / 0.2, 0, 1))              # thinning, darker tip
-mix(pt, (0.55, 0.08, 0.12), 1.0 * (pv < 0.10))                                    # hair tie
-pt = pt[::-1]                                                                     # row 0 = v 0
-IMG_PONY = save_png(pt, "Grandma_Ponytail")
+    # --- Ponytail: strands down its length, dark red hair tie at the top -----------
+    pv = np.linspace(0, 1, 128)[:, None] * np.ones((1, 64))
+    pu = np.ones((128, 1)) * np.linspace(0, 1, 64)[None, :]
+    pt = np.empty((128, 64, 3), np.float32); pt[:] = (0.68, 0.68, 0.70)
+    pt *= (0.80 + 0.30 * (np.sin(pu * 2 * math.pi * 9 + np.sin(pv * 9) * 1.5) * 0.5 + 0.5))[..., None]
+    mix(pt, (0.86, 0.84, 0.78), 0.3 * (np.sin(pu * 2 * math.pi * 4 + 1) > 0.7))
+    mix(pt, (0.42, 0.42, 0.45), 0.5 * np.clip((pv - 0.8) / 0.2, 0, 1))              # thinning, darker tip
+    mix(pt, (0.55, 0.08, 0.12), 1.0 * (pv < 0.10))                                    # hair tie
+    pt = pt[::-1]                                                                     # row 0 = v 0
+    IMG_PONY = save_png(pt, "Grandma_Ponytail")
 
 # --- Shoes: black leather Mary Janes ---------------------------------------------
 SHO_RES = 128
@@ -1176,8 +1235,9 @@ attach_texture(MAT_BODY, IMG_BODY)
 if skirt:
     attach_texture(MAT_SKIRT, IMG_SKIRT)
 attach_texture(MAT_SHIRT, IMG_SHIRT)
-attach_texture(MAT_HAIR, IMG_HAIR)
-attach_texture(MAT_PONY, IMG_PONY)
+if MAKE_HAIR:
+    attach_texture(MAT_HAIR, IMG_HAIR)
+    attach_texture(MAT_PONY, IMG_PONY)
 attach_texture(MAT_SHOES, IMG_SHOES)
 
 # ─── Export ───────────────────────────────────────────────────────────────────
@@ -1261,6 +1321,15 @@ if PREVIEW_DIR:
     shoot("textured_face", (0, -5, 1.50), (0, 0, 1.50), scale=0.30)
     shoot("textured_face_3q", (3.2, -3.8, 1.55), (0, -0.03, 1.50), scale=0.30)
     shoot("textured_hand", (2.5, -4.0, 0.95), (0.58, 0, 0.84), scale=0.35)
+    for o in (shirt, skirt):
+        o.hide_render = True
+    shoot("textured_skin_front", (0, -5, 0.82), (0, 0, 0.82))
+    shoot("textured_skin_3q", (3.5, -3.5, 1.1), (0, 0, 0.82))
+    shoot("textured_skin_back", (0, 5, 0.82), (0, 0, 0.82))
+    shoot("textured_skin_armpit", (2.0, -1.0, 0.75), (0.15, 0.03, 1.15), scale=0.6)
+    shoot("textured_skin_under_chin", (0.6, -2.5, 0.9), (0, -0.03, 1.40), scale=0.45)
+    for o in (shirt, skirt):
+        o.hide_render = False
     shoot("textured_shoes_3q", (2.6, -3.4, 1.4), (0.0, -0.05, 0.04), scale=0.45)
     shoot("textured_shoes_side", (5, 0, 0.06), (0, -0.05, 0.06), scale=0.40)
     shoot("textured_shoes_front", (0, -5, 0.08), (0, 0, 0.08), scale=0.40)
