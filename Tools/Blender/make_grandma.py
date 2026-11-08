@@ -393,36 +393,55 @@ def head_surface(z, th, out=0.0):
 
 
 # ─── Ears and thumbs (simple low-poly pieces, part of the body mesh) ─────────
+EAR_CONCHA = {}                      # side -> concha centre (for the texture)
+EAR_RIM_OUT = 0.010                  # how far the back of the rim flares from the head
 def ear(bm_, s):
-    """Long elderly ear: outer rim, recessed bowl, hanging lobe, angled out
-    from the side of the head (back edge further out than the front)."""
+    """Low-poly elderly ear: C-shaped outline (wide rounded top, narrowing to
+    a long hanging lobe), a thin rolled rim, a recessed bowl toward the front,
+    tilted back ~15 degrees. The rim flares away from the head toward the
+    back/top; the front edge and lobe stay close to the cheek."""
     th = (math.pi / 2 + 0.10) * s
-    P = head_surface(1.502, th)
+    P = head_surface(1.510, th)
     up = Vector((0, 0, 1))
     out = Vector((math.sin(th), -math.cos(th), 0)).normalized()     # away from the head
-    fwd = up.cross(out).normalized() * (-s)                          # toward the face
-    if fwd.y > 0:
-        fwd = -fwd
-    N = 9
-    outline = []
-    for k in range(N):
-        a = 2 * math.pi * k / N + math.pi / 2
-        u = 0.017 * math.cos(a)                                      # + toward the face
-        v = 0.031 * math.sin(a) if math.sin(a) > 0 else 0.039 * math.sin(a)   # long lobe below
-        outline.append((u - (0.004 if v < -0.02 else 0.0), v))       # lobe tucks forward
-    def place(u, v, extra):
-        stick = -0.004 + 0.009 * max(0.0, min(1.0, (0.02 - u) / 0.04))  # back edge sticks out; front is sunk into the head
-        return P + fwd * u + up * v + out * (stick + extra)
-    front = [bm_.verts.new(place(u, v, 0.003)) for u, v in outline]
-    inner = [bm_.verts.new(place(u * 0.55 + 0.002, v * 0.6, 0.000)) for u, v in outline]
-    back = [bm_.verts.new(place(u * 0.9, v * 0.9, -0.010)) for u, v in outline]   # buried in the skull: no gap
-    bowl = bm_.verts.new(place(0.004, -0.004, -0.003))
+    fwd = Vector((0, -1, 0)) - out * out.y
+    fwd.normalize()                                                  # along the head, toward the face
+    # Outline (u toward the face, v up), going round from the front-top.
+    outline = [(0.004, 0.040), (-0.004, 0.047), (-0.013, 0.049), (-0.021, 0.045), (-0.026, 0.035),
+               (-0.027, 0.020), (-0.025, 0.004), (-0.021, -0.012), (-0.015, -0.027), (-0.009, -0.042),
+               (0.001, -0.041), (0.004, -0.024), (0.006, -0.004), (0.006, 0.020)]
+    tilt = math.radians(15)                                          # top leans back
+    def tilt_uv(u, v):
+        return u * math.cos(tilt) - v * math.sin(tilt), u * math.sin(tilt) + v * math.cos(tilt)
+    def flare(u, v):
+        back = max(0.0, min(1.0, -u / 0.027))
+        lobe = max(0.0, min(1.0, (-v - 0.015) / 0.025))
+        return 0.002 + EAR_RIM_OUT * back * (1.0 - 0.6 * lobe)
+    def place(u, v, extra, f=None):
+        tu, tv = tilt_uv(u, v)
+        return P + fwd * tu + up * tv + out * ((flare(u, v) if f is None else f) + extra)
+    CU, CV = -0.008, 0.002                                           # concha (bowl) centre
+    rim = [bm_.verts.new(place(u, v, 0.004)) for u, v in outline]                 # outer rim edge
+    rim_in = [bm_.verts.new(place(CU + (u - CU) * 0.72, CV + (v - CV) * 0.78, 0.005))
+              for u, v in outline]                                                # top of the rolled rim
+    bowl_wall = [bm_.verts.new(place(CU + (u - CU) * 0.45, CV + (v - CV) * 0.50, -0.001))
+                 for u, v in outline]                                             # inside the bowl
+    bowl = bm_.verts.new(place(CU, CV, -0.003, f=flare(CU, CV) * 0.6))            # deepest point
+    back = [bm_.verts.new(place(u * 0.92, v * 0.92, -0.010, f=flare(u, v) * 0.5))
+            for u, v in outline]                                                  # back, sunk into the head
+    EAR_CONCHA[s] = place(CU, CV, -0.003, f=flare(CU, CV) * 0.6)
+    N = len(outline)
+    # Back faces first: front and back share texels (cylindrical head UVs), and
+    # later faces win when the texture is painted, so the visible front goes last.
+    bm_.faces.new(list(reversed(back)))
     for k in range(N):
         j = (k + 1) % N
-        bm_.faces.new((front[k], front[j], inner[j], inner[k]))        # rim (helix)
-        bm_.faces.new((inner[k], inner[j], bowl))                      # recessed bowl
-        bm_.faces.new((back[j], back[k], front[k], front[j]))          # outer edge
-    bm_.faces.new(list(reversed(back)))                                # back of the ear
+        bm_.faces.new((back[j], back[k], rim[k], rim[j]))              # outer edge / back of ear
+    for k in range(N):
+        j = (k + 1) % N
+        bm_.faces.new((rim[k], rim[j], rim_in[j], rim_in[k]))          # rolled rim (helix)
+        bm_.faces.new((rim_in[k], rim_in[j], bowl_wall[j], bowl_wall[k]))  # rim drops into the bowl
+        bm_.faces.new((bowl_wall[k], bowl_wall[j], bowl))              # concha
 
 def thumb(bm_, s):
     wl = NODES["wristL"][0]
@@ -1139,6 +1158,12 @@ head_ao = occlusion(hp, hn, hmask)
 ear_zone = gauss(np.abs(hp[..., 0]) - 0.085, 0.020) * gauss(hp[..., 2] - 1.50, 0.045)
 head_ao *= 1.0 - 0.75 * ear_zone
 roast(head_img, hn, head_ao)
+# Ears: flushed skin, dark bowl / ear canal.
+for s_, cc in EAR_CONCHA.items():
+    on_ear = (np.sign(hp[..., 0]) == s_) & (np.abs(hp[..., 0]) > 0.070) & (np.abs(hp[..., 2] - 1.51) < 0.06)
+    d_ = np.linalg.norm(hp - np.array(cc, np.float32), axis=-1)
+    mix(head_img, (0.88, 0.46, 0.42), 0.35 * on_ear)
+    mix(head_img, (0.32, 0.07, 0.06), 0.80 * gauss(d_, 0.009) * on_ear)
 X, Y, Z = hp[..., 0], hp[..., 1], hp[..., 2]
 AY = np.array([head_axis_y(z) for z in Z.ravel()]).reshape(Z.shape)
 TH = np.arctan2(X, -(Y - AY))            # 0 at the face, matches the sculpt
