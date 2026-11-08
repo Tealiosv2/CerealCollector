@@ -265,7 +265,7 @@ def head_detail(z, th):
     d += 0.007 * _g(ath - 0.68, 0.20) * _g(z - 1.503, 0.016)     # cheekbones
     d -= 0.006 * _g(ath - 0.60, 0.20) * _g(z - 1.462, 0.016)     # sunken cheeks (softer, off the mouth)
     d += 0.007 * _g(th, 0.37) * _g(z - 1.453, 0.010)             # lips (wide mouth, fuller)
-    d -= 0.004 * _g(th, 0.33) * _g(z - 1.450, 0.0025)            # mouth line
+    d -= 0.004 * _g(th, 0.33) * _g(z - 1.450 - 0.003 * (th / 0.33) ** 2, 0.0025)  # mouth line, corners lifted (smile)
     d += 0.012 * _g(th, 0.28) * _g(z - 1.420, 0.011)             # stronger chin
     d += 0.020 * _g(ath - math.pi / 2 - 0.08, 0.11) * _g(z - 1.503, 0.024)  # ears
     return d
@@ -394,7 +394,7 @@ def head_surface(z, th, out=0.0):
 
 # ─── Ears and thumbs (simple low-poly pieces, part of the body mesh) ─────────
 EAR_CONCHA = {}                      # side -> concha centre (for the texture)
-EAR_RIM_OUT = 0.010                  # how far the back of the rim flares from the head
+EAR_RIM_OUT = 0.007                  # how far the back of the rim flares from the head
 def ear(bm_, s):
     """Low-poly elderly ear: C-shaped outline (wide rounded top, narrowing to
     a long hanging lobe), a thin rolled rim, a recessed bowl toward the front,
@@ -410,6 +410,8 @@ def ear(bm_, s):
     outline = [(0.004, 0.040), (-0.004, 0.047), (-0.013, 0.049), (-0.021, 0.045), (-0.026, 0.035),
                (-0.027, 0.020), (-0.025, 0.004), (-0.021, -0.012), (-0.015, -0.027), (-0.009, -0.042),
                (0.001, -0.041), (0.004, -0.024), (0.006, -0.004), (0.006, 0.020)]
+    EAR_SCALE = 0.80                                                 # smaller ears
+    outline = [(u * EAR_SCALE, v * EAR_SCALE) for u, v in outline]
     tilt = math.radians(15)                                          # top leans back
     def tilt_uv(u, v):
         return u * math.cos(tilt) - v * math.sin(tilt), u * math.sin(tilt) + v * math.cos(tilt)
@@ -420,7 +422,7 @@ def ear(bm_, s):
     def place(u, v, extra, f=None):
         tu, tv = tilt_uv(u, v)
         return P + fwd * tu + up * tv + out * ((flare(u, v) if f is None else f) + extra)
-    CU, CV = -0.008, 0.002                                           # concha (bowl) centre
+    CU, CV = -0.008 * EAR_SCALE, 0.002 * EAR_SCALE                   # concha (bowl) centre
     rim = [bm_.verts.new(place(u, v, 0.004)) for u, v in outline]                 # outer rim edge
     rim_in = [bm_.verts.new(place(CU + (u - CU) * 0.72, CV + (v - CV) * 0.78, 0.005))
               for u, v in outline]                                                # top of the rolled rim
@@ -1193,7 +1195,9 @@ for s in (1, -1):
     shape = (np.abs(eu) / 0.0150) ** 1.6 + (ez / 0.0055) ** 2
     eye = (shape < 1) & side
     mix(head_img, (0.30, 0.20, 0.20), 0.55 * gauss(shape - 1.0, 0.35) * side)            # lid rim
-    mix(head_img, (0.62, 0.48, 0.48), 0.45 * gauss(eu, 0.014) * gauss(ez + 0.0085, 0.0035) * side)  # eye bag
+    mix(head_img, (0.24, 0.06, 0.10), 0.88 * gauss(eu, 0.019) * gauss(ez + 0.0100, 0.0065) * side)  # heavy dark eye bag
+    mix(head_img, (0.30, 0.09, 0.12), 0.55 * gauss(eu + 0.002, 0.016) * gauss(ez + 0.0185, 0.0045) * side)  # second, lower pouch
+    mix(head_img, (0.16, 0.04, 0.07), 0.55 * gauss(eu, 0.012) * gauss(ez + 0.0080, 0.0022) * side)  # darkest crease under the eye
     mix(head_img, (0.66, 0.50, 0.46), 0.35 * gauss(eu, 0.014) * gauss(ez - 0.0085, 0.003) * side)   # hooded lid fold
     # Dim, shadowed sclera (darker toward the lids) so the eyes sit in the dark.
     head_img[eye] = (0.58, 0.53, 0.46)
@@ -1225,7 +1229,7 @@ for s in (1, -1):
 
 # Mouth: thin pale lips with a downturned line.
 lip_w = 0.0275                                 # wider mouth
-mouth_line = 1.4505 - 0.0040 * (AU / lip_w) ** 2
+mouth_line = 1.4500 + 0.0028 * (AU / lip_w) ** 2      # subtle smile: corners turn up
 lips = (AU < lip_w) & front_mask
 upper_lip = lips & (Z > mouth_line) & (Z < mouth_line + 0.0035 * (1 - (AU / lip_w) ** 2))
 lower_lip = lips & (Z < mouth_line) & (Z > mouth_line - 0.0050 * (1 - (AU / lip_w) ** 2))
