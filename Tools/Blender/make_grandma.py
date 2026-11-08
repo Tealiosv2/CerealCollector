@@ -1073,6 +1073,11 @@ def roast(img, nrm, ao):
     mix(img, (0.88, 0.48, 0.40), 0.48)                          # sunburnt overall
     mix(img, (0.68, 0.20, 0.13), 0.85 * shade)                  # roasted red in shadow
     mix(img, (0.28, 0.06, 0.04), 0.75 * shade ** 2.0)           # charred crimson in the deepest creases
+    # A touch of sickly, ghostly pallor: slightly desaturated with a faint
+    # grey-green cast (kept subtle so the roasted red still reads).
+    lum = img @ np.array([0.299, 0.587, 0.114], np.float32)
+    img[:] = lum[..., None] + (img - lum[..., None]) * 0.88
+    mix(img, (0.62, 0.66, 0.58), 0.10)
 
 def dilate(img, mask, steps=6):
     """Bleed colour outward from filled texels so mip/filtering has no black seams."""
@@ -1164,7 +1169,7 @@ roast(head_img, hn, head_ao)
 for s_, cc in EAR_CONCHA.items():
     on_ear = (np.sign(hp[..., 0]) == s_) & (np.abs(hp[..., 0]) > 0.070) & (np.abs(hp[..., 2] - 1.51) < 0.06)
     d_ = np.linalg.norm(hp - np.array(cc, np.float32), axis=-1)
-    mix(head_img, (0.88, 0.46, 0.42), 0.35 * on_ear)
+    mix(head_img, (0.76, 0.52, 0.50), 0.30 * on_ear)          # muted flush, matches the pallor
     mix(head_img, (0.32, 0.07, 0.06), 0.80 * gauss(d_, 0.009) * on_ear)
 X, Y, Z = hp[..., 0], hp[..., 1], hp[..., 2]
 AY = np.array([head_axis_y(z) for z in Z.ravel()]).reshape(Z.shape)
@@ -1181,6 +1186,7 @@ WRINKLE = (0.38, 0.12, 0.10)              # dark crimson creases on the roasted 
 # sunken holes even though the eyes themselves are painted flat.
 mix(head_img, (0.30, 0.20, 0.22), 0.45 * gauss(ATH - 0.36, 0.20) * gauss(Z - 1.536, 0.018) * front_mask)
 mix(head_img, (0.08, 0.03, 0.04), 0.80 * gauss(ATH - 0.36, 0.13) * gauss(Z - 1.535, 0.011) * front_mask)
+mix(head_img, (0.30, 0.32, 0.40), 0.18 * gauss(ATH - 0.36, 0.20) * gauss(Z - 1.535, 0.020) * front_mask)  # cold, ghostly tint around the eyes
 # Rosy cheeks, ears and nose tip; pale, slightly shiny scalp.
 mix(head_img, (0.85, 0.55, 0.52), 0.22 * gauss(ATH - 0.62, 0.16) * gauss(Z - 1.49, 0.018))
 mix(head_img, (0.82, 0.55, 0.50), 0.30 * gauss(ATH - math.pi / 2 - 0.08, 0.14) * gauss(Z - 1.503, 0.03))
