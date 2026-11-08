@@ -142,6 +142,19 @@ for p in mesh.polygons:
     p.use_smooth = True
 mesh.set_sharp_from_angle(angle=math.radians(50)) if hasattr(mesh, "set_sharp_from_angle") else None
 
+# PSX low poly: collapse-decimate the whole chair (symmetric).
+CHAIR_TRIS = 1000
+dm = chair.modifiers.new("Decimate", "DECIMATE")
+dm.decimate_type = "COLLAPSE"
+dm.ratio = min(1.0, CHAIR_TRIS / sum(len(p.vertices) - 2 for p in mesh.polygons))
+dm.use_symmetry = True
+dm.symmetry_axis = "X"
+for o in scene.objects:
+    o.select_set(False)
+chair.select_set(True)
+view_layer.objects.active = chair
+bpy.ops.object.modifier_apply(modifier="Decimate")
+
 def make_material(name, rgb):
     m = bpy.data.materials.new(name)
     m.diffuse_color = (*rgb, 1.0)
@@ -253,9 +266,15 @@ def grade(img):
     img = np.clip(img, 0, 1) ** 1.08
     h, w = img.shape[:2]
     dither = np.tile(BAYER4, (h // 4 + 1, w // 4 + 1))[:h, :w][..., None]
-    return np.clip(np.round(img * 31 + dither) / 31, 0, 1)
+    # No baked dither: with big point-sampled texels it shows as a checkerboard.
+    return np.clip(np.round(img * 31) / 31, 0, 1)
+
+PIXELATE = 2          # paint at full res, save at 1/PIXELATE (chunky PSX texels)
 
 def save_png(img, name):
+    if PIXELATE > 1:
+        h_, w_ = img.shape[0] // PIXELATE, img.shape[1] // PIXELATE
+        img = img[:h_ * PIXELATE, :w_ * PIXELATE].reshape(h_, PIXELATE, w_, PIXELATE, 3).mean((1, 3))
     img = grade(img)
     h, w = img.shape[:2]
     im = bpy.data.images.new(name, w, h, alpha=False)
@@ -266,6 +285,48 @@ def save_png(img, name):
     im.save()
     print("TEXTURE", im.filepath_raw)
     return im
+
+
+# Baked lighting, PSX style: ambient occlusion (creases between cushions,
+# arms and back, under the seat, between the legs) plus a soft light from
+# above, painted straight into the texture.
+from mathutils.bvhtree import BVHTree
+CHAIR_BVH = BVHTree.FromObject(chair, bpy.context.evaluated_depsgraph_get())
+
+def bake_light(img, pos, nrm, mask, rays=16, dist=0.25, step=2):
+    res = mask.shape[0]
+    rng = np.random.default_rng(5)
+    u1, u2 = rng.random(rays), rng.random(rays)
+    r_, phi = np.sqrt(u1), 2 * np.pi * u2
+    local = np.stack([r_ * np.cos(phi), r_ * np.sin(phi), np.sqrt(1 - u1)], -1)
+    ao = np.zeros(mask.shape, np.float32)
+    for by in range(0, res, step):
+        for bx in range(0, res, step):
+            blk = mask[by:by + step, bx:bx + step]
+            if not blk.any():
+                continue
+            iy, ix = np.argwhere(blk)[0]
+            n = Vector(nrm[by + iy, bx + ix])
+            if n.length < 0.5:
+                continue
+            n.normalize()
+            p = Vector(pos[by + iy, bx + ix]) + n * 0.004
+            t = n.orthogonal().normalized()
+            b = n.cross(t)
+            hits = sum(1 for d in local
+                       if CHAIR_BVH.ray_cast(p, t * d[0] + b * d[1] + n * d[2], dist)[0] is not None)
+            ao[by:by + step, bx:bx + step] = hits / rays
+    for _ in range(4):                                       # soften
+        acc = ao.copy(); cnt = np.ones_like(ao)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            m = np.roll(mask, (dy, dx), (0, 1))
+            acc += np.roll(ao, (dy, dx), (0, 1)) * m
+            cnt += m
+        ao = np.where(mask, acc / cnt, ao)
+    sky = np.clip(nrm[..., 2], -1, 1)                        # +1 facing up, -1 facing the floor
+    light = (0.98 + 0.18 * sky) * (1.0 - 0.55 * np.clip(ao * 1.3, 0, 1))
+    img *= light[..., None]
+    mix(img, (0.06, 0.03, 0.04), 0.25 * np.clip(ao * 1.6 - 0.5, 0, 1))   # deepest creases go near-black
 
 def lattice(p, cell, offset=0.0):
     c = p / cell + offset
@@ -278,16 +339,16 @@ fp, fn, fmask = rasterize(mesh, FABRIC, FR)
 X, Y, Z = fp[..., 0], fp[..., 1], fp[..., 2]
 fab = np.empty(fp.shape, np.float32); fab[:] = (0.56, 0.37, 0.42)
 fab *= (1 + 0.06 * wave_noise(fp, 500, seed=1) + 0.05 * wave_noise(fp, 40, seed=2))[..., None]
-loc = lattice(fp, 0.11)
+loc = lattice(fp, 0.15)            # big enough to survive 128px texels
 r = np.linalg.norm(loc, axis=-1)
 ang = np.arctan2(loc[..., 2] + loc[..., 0] * 0.3, loc[..., 0] + loc[..., 1])
-rose = r < 0.030 * (0.70 + 0.30 * np.cos(6 * ang))
+rose = r < 0.044 * (0.70 + 0.30 * np.cos(6 * ang))
 mix(fab, (0.86, 0.74, 0.66), 0.80 * rose)                                      # cream roses
-mix(fab, (0.62, 0.30, 0.36), 0.70 * (r < 0.012))                               # deep rose centres
-mix(fab, (0.44, 0.27, 0.32), 0.60 * (np.abs(r - 0.033) < 0.003))               # dark outline
-leaf_loc = lattice(fp, 0.11, 0.5)
+mix(fab, (0.62, 0.30, 0.36), 0.80 * (r < 0.016))                               # deep rose centres
+mix(fab, (0.36, 0.20, 0.26), 0.70 * (np.abs(r - 0.047) < 0.005))               # dark outline
+leaf_loc = lattice(fp, 0.15, 0.5)
 lr_ = np.linalg.norm(leaf_loc * np.array([1.0, 1.0, 1.8], np.float32), axis=-1)
-mix(fab, (0.42, 0.46, 0.30), 0.75 * (lr_ < 0.020))                              # olive leaves
+mix(fab, (0.42, 0.50, 0.30), 0.85 * (lr_ < 0.028))                              # olive leaves
 # Button tufting on the back cushion: dark dimples with small buttons.
 on_back = (Y > 0.04) & (Y < 0.20) & (Z > 0.50) & (Z < 0.98) & (np.abs(X) < 0.27) & (fn[..., 1] < -0.3)
 grid = lattice(np.stack([X, Y * 0, Z], -1), 0.12, 0.5)
@@ -308,11 +369,12 @@ mix(fab, (0.24, 0.15, 0.12), 0.45 * gauss(st - 1.45, 0.05))
 mix(fab, (0.18, 0.12, 0.12), 0.45 * np.clip((0.30 - Z) / 0.18, 0, 1))
 crevice = gauss(Z - (BASE_TOP + 0.005), 0.015) + gauss(np.abs(X) - 0.28, 0.012) * (Z > BASE_TOP) * (Z < 0.62)
 mix(fab, (0.15, 0.09, 0.10), 0.55 * np.clip(crevice, 0, 1))
+bake_light(fab, fp, fn, fmask)
 fab = dilate(fab, fmask)
 IMG_FABRIC = save_png(fab, "Chair_Fabric")
 
 # Wood: dark varnished walnut, grain running along each leg, scuffed tips.
-WR = 128
+WR = 256
 wp, wn, wmask = rasterize(mesh, WOOD, WR)
 X, Y, Z = wp[..., 0], wp[..., 1], wp[..., 2]
 wd = np.empty(wp.shape, np.float32); wd[:] = (0.32, 0.18, 0.10)
@@ -320,7 +382,8 @@ grain = np.sin((X * 0.7 + Y) * 420 + 6 * wave_noise(wp * np.array([1, 1, 0.15], 
 wd *= (0.85 + 0.15 * grain)[..., None]
 mix(wd, (0.16, 0.08, 0.05), 0.5 * np.clip(wave_noise(wp, 60, seed=7) - 0.6, 0, 1))
 mix(wd, (0.55, 0.40, 0.28), 0.5 * gauss(Z - 0.0, 0.012))                      # scuffed feet
-mix(wd, (0.70, 0.55, 0.40), 0.35 * np.clip(wn[..., 2], 0, 1) * gauss(Z - 0.135, 0.02))  # worn top edge
+mix(wd, (0.70, 0.55, 0.40), 0.35 * np.clip(wn[..., 2], 0, 1) * gauss(Z - 0.135, 0.02) * (np.abs(Y) > 0.2) * (np.abs(Y) < 0.32))  # worn leg tops only
+bake_light(wd, wp, wn, wmask)
 wd = dilate(wd, wmask)
 IMG_WOOD = save_png(wd, "Chair_Wood")
 
@@ -331,6 +394,7 @@ def attach_texture(mat, img):
     bsdf = nt.nodes.get("Principled BSDF")
     if bsdf:
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    tex.interpolation = "Closest"         # PSX: hard texels, no filtering
     nt.nodes.active = tex
     mat.diffuse_color = (1, 1, 1, 1)
 
