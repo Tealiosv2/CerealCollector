@@ -6,7 +6,8 @@
 # A glove-like hand in three separate pieces, so the existing procedural arm
 # animation can curl it without a rig:
 #   FP_Hand_Palm     origin at the wrist  (palm + short wrist cuff)
-#   FP_Hand_Fingers  origin at the knuckles (four fingers as one mitten block)
+#   FP_Hand_Fingers    origin at the knuckles (four fingers as one mitten block, first segment)
+#   FP_Hand_FingerTips origin at the middle joint (second segment, child of Fingers)
 #   FP_Hand_Thumb    origin at the thumb base
 # Units match the house (~3x real scale) and the placeholder arm's hand.
 # Orientation: fingers point forward (-Y in Blender = +Z in Unity), palm down,
@@ -88,30 +89,45 @@ palm_rings = [
 loft(bm, palm_rings, cap_start=True, cap_end=True)
 palm = make_object("FP_Hand_Palm", bm, (0.0, 0.0, 0.0))
 
-# ─── Fingers: one mitten block, slightly curved down, rounded tips ───────────
-bm = bmesh.new()
+# ─── Fingers: one mitten block in two segments, rounded tips ─────────────────
+# Glove-like: the four fingers stay together. They bend twice: at the
+# knuckles (FP_Hand_Fingers) and once more halfway along (FP_Hand_FingerTips,
+# a child of the first segment). The segments overlap slightly at the middle
+# joint so no gap opens when it bends. The thumb is one piece.
 K = -PALM_LEN
-finger_rings = [
+J = K - 0.105                                   # middle finger joint (second bend)
+
+def shape_fingers(bm):
+    # Rounded fingertip line: middle two "fingers" a little longer.
+    for v in bm.verts:
+        if v.co.y < K - 0.15:
+            x = v.co.x / 0.12
+            v.co.y -= 0.022 * (1 - min(1.0, abs(x - 0.05)) ** 2) * min(1.0, (K - 0.15 - v.co.y) / 0.08)
+    # Shallow grooves along the top between fingers (suggests four fingers).
+    for gx in (-0.062, 0.0, 0.062):
+        for v in bm.verts:
+            if v.co.z > 0.0 and v.co.y < K - 0.01:
+                w = math.exp(-((v.co.x - gx) / 0.018) ** 2)
+                v.co.z -= 0.006 * w
+
+bm = bmesh.new()
+loft(bm, [
     section(0.0, K + 0.000, 0.004, 0.126, 0.036, flat_bottom=0.30, arch=0.12),
-    section(0.0, K - 0.090, -0.002, 0.123, 0.033, flat_bottom=0.25, arch=0.07),
+    section(0.0, K - 0.060, 0.000, 0.124, 0.034, flat_bottom=0.26, arch=0.08),
+    section(0.0, J - 0.010, -0.005, 0.121, 0.031, flat_bottom=0.22, arch=0.06),   # just past the joint
+], cap_start=True, cap_end=True)
+shape_fingers(bm)
+fingers = make_object("FP_Hand_Fingers", bm, (0.0, K, 0.004))
+
+bm = bmesh.new()
+loft(bm, [
+    section(0.0, J + 0.010, -0.003, 0.122, 0.032, flat_bottom=0.22, arch=0.06),   # just before the joint
     section(0.0, K - 0.175, -0.013, 0.113, 0.028, flat_bottom=0.15),
     section(0.0, K - FINGER_LEN + 0.020, -0.020, 0.104, 0.024),
-    section(0.0, K - FINGER_LEN, -0.024, 0.088, 0.017),          # blunt, rounded fingertip row
-]
-loft(bm, finger_rings, cap_start=True, cap_end=True)
-# Rounded fingertip line: pull the middle two "fingers" slightly further out
-# than the index and little finger (glove-like, no gaps between fingers).
-for v in bm.verts:
-    if v.co.y < K - 0.15:
-        x = v.co.x / 0.12
-        v.co.y -= 0.022 * (1 - min(1.0, abs(x - 0.05)) ** 2) * min(1.0, (K - 0.15 - v.co.y) / 0.08)
-# Shallow grooves along the top between fingers (suggests four fingers).
-for gx in (-0.062, 0.0, 0.062):
-    for v in bm.verts:
-        if v.co.z > 0.0 and v.co.y < K - 0.01:
-            w = math.exp(-((v.co.x - gx) / 0.018) ** 2)
-            v.co.z -= 0.006 * w
-fingers = make_object("FP_Hand_Fingers", bm, (0.0, K, 0.004))
+    section(0.0, K - FINGER_LEN, -0.024, 0.088, 0.017),                            # blunt, rounded fingertip row
+], cap_start=True, cap_end=True)
+shape_fingers(bm)
+fingertips = make_object("FP_Hand_FingerTips", bm, (0.0, J, -0.004))
 
 # ─── Thumb: separate, from the side of the palm near the wrist ───────────────
 bm = bmesh.new()
@@ -128,12 +144,15 @@ loft(bm, thumb_rings, cap_start=True, cap_end=False, tip=TB + tdir * 0.195)
 thumb = make_object("FP_Hand_Thumb", bm, tuple(TB))
 
 # Fingers and thumb hang off the palm, so animating the palm moves the lot.
-# (The palm sits at the origin with no rotation, so local == world positions.)
-for child in (fingers, thumb):
-    child.parent = palm
+# Hierarchy: Palm -> Fingers -> FingerTips, Palm -> Thumb. Nothing is rotated
+# at rest, so a child's local position is its pivot minus its parent's pivot.
+for child, parent in ((fingers, palm), (thumb, palm), (fingertips, fingers)):
+    pivot = child.location.copy()
+    child.parent = parent
+    child.location = pivot - parent.location if parent is not palm else pivot
 view_layer.update()
 
-HAND = [palm, fingers, thumb]
+HAND = [palm, fingers, fingertips, thumb]
 tris = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in HAND}
 print("HAND_TRIS", tris, "total", sum(tris.values()))
 
@@ -338,10 +357,11 @@ if PREVIEW_DIR:
         shoot(prefix + "fp", (0.35, 1.6, 0.9), scale=0.9, up="Z")    # roughly the first-person angle
 
     views("hand_open_")
-    # Grip: the arm animation curls the fingers about the knuckles (X axis)
+    # Grip: the fingers bend at the knuckles and again at the middle joint (X axis)
     # and here the thumb is turned in, as when holding a cereal box.
-    fingers.rotation_euler = (math.radians(-95), 0, 0)
-    thumb.rotation_euler = (math.radians(-25), 0, math.radians(-35))
+    # Positive X curls toward the palm (checked: the tips end up under the hand).
+    fingers.rotation_euler = (math.radians(55), 0, 0)       # bend at the knuckles
+    fingertips.rotation_euler = (math.radians(70), 0, 0)    # and again halfway along
     view_layer.update()
     views("hand_grip_")
     print("PREVIEWS", PREVIEW_DIR)
