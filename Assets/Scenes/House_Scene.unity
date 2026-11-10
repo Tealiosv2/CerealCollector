@@ -164,7 +164,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3e33263a68c3248479d2368194a5a811, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FirstPersonArm_Script
-  pickupDuration: 2.6
+  pickupDuration: 3.3
   grabMoment: 0.2
   shoulder: {fileID: 151581437}
   elbow: {fileID: 1084683176}

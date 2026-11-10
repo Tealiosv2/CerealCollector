@@ -17,7 +17,7 @@ using UnityEngine;
 public class FirstPersonArm_Script : MonoBehaviour
 {
     [Header("Animation")]
-    public float pickupDuration = 2.6f;   // reach, grab, raise, inspect, lower
+    public float pickupDuration = 3.3f;   // reach, grab, raise, inspect, lower
     [Range(0f, 1f)] public float grabMoment = 0.20f;   // normalized time the hand closes
 
     [Header("Joints (created by BuildArm)")]

@@ -69,6 +69,8 @@ public class PlayerPickup_Script : MonoBehaviour
         if (arm == null || arm.IsBusy) return false;
         var target = FindTarget();
         if (target == null) return false;
+        // Only pick up what is actually highlighted (crosshair on it, in range).
+        if (CollectibleHoverOutline_Script.Instance != null && CollectibleHoverOutline_Script.CurrentTarget != target) return false;
         pending = target;
         arm.PlayPickup();
         return true;
@@ -97,7 +99,11 @@ public class PlayerPickup_Script : MonoBehaviour
 
         Vector3 worldScale = root.lossyScale;
         root.SetParent(arm.wrist, true);
-        root.localRotation = Quaternion.Euler(holdEuler);
+        // Turn the box so its front art (frontInRoot) faces the player, whichever way
+        // the prefab was authored, then apply the hold rotation.
+        Vector3 front = Vector3.ProjectOnPlane(held.frontInRoot, Vector3.up);
+        float frontYaw = front.sqrMagnitude > 1e-6f ? Vector3.SignedAngle(Vector3.forward, front, Vector3.up) : 0f;
+        root.localRotation = Quaternion.Euler(holdEuler) * Quaternion.Euler(0f, -frontYaw, 0f);
         root.localScale = Vector3.Scale(worldScale * holdScale, Inv(arm.wrist.lossyScale));
 
         // Put the centre of the box (not its pivot) at the hold point.
