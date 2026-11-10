@@ -17,8 +17,8 @@ using UnityEngine;
 public class FirstPersonArm_Script : MonoBehaviour
 {
     [Header("Animation")]
-    public float pickupDuration = 1.1f;
-    [Range(0f, 1f)] public float grabMoment = 0.45f;   // normalized time the hand closes
+    public float pickupDuration = 2.6f;   // reach, grab, raise, inspect, lower
+    [Range(0f, 1f)] public float grabMoment = 0.20f;   // normalized time the hand closes
 
     [Header("Joints (created by BuildArm)")]
     public Transform shoulder;
@@ -93,6 +93,33 @@ public class FirstPersonArm_Script : MonoBehaviour
         wristEuler = new Vector3(-4f, 0f, 0f),
         fingerCurl = 1.0f,
     };
+    // Inspect: box raised in front of the view, turned one way...
+    public ArmPose inspectPoseA = new ArmPose
+    {
+        shoulderPos = new Vector3(0.42f, -0.70f, -0.05f),
+        shoulderEuler = new Vector3(-4f, -26f, 0f),
+        elbowBend = 48f,
+        wristEuler = new Vector3(50f, 28f, 0f),       // pitch keeps the box upright; yaw turns it
+        fingerCurl = 1.0f,
+    };
+    // ...then the other way, tilted...
+    public ArmPose inspectPoseB = new ArmPose
+    {
+        shoulderPos = new Vector3(0.42f, -0.70f, -0.05f),
+        shoulderEuler = new Vector3(-6f, -26f, 0f),
+        elbowBend = 50f,
+        wristEuler = new Vector3(46f, -32f, -10f),
+        fingerCurl = 1.0f,
+    };
+    // ...and settling back toward the front before lowering.
+    public ArmPose inspectPoseC = new ArmPose
+    {
+        shoulderPos = new Vector3(0.43f, -0.71f, -0.05f),
+        shoulderEuler = new Vector3(-3f, -25f, 0f),
+        elbowBend = 46f,
+        wristEuler = new Vector3(50f, 4f, 4f),
+        fingerCurl = 1.0f,
+    };
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
     void Awake()
@@ -136,11 +163,12 @@ public class FirstPersonArm_Script : MonoBehaviour
     }
 
     // ─── Animation ───────────────────────────────────────────────────────────
-    // Keyframes over normalized time: rest -> reach -> grab -> lift -> rest.
+    // Keyframes over normalized time:
+    // rest -> reach -> grab -> lift -> inspect (turn, turn back, settle) -> lift -> rest.
     public void SampleAt(float t)
     {
-        float[] times = { 0f, 0.32f, grabMoment, 0.75f, 1f };
-        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, idlePose };
+        float[] times = { 0f, 0.14f, grabMoment, 0.30f, 0.42f, 0.60f, 0.76f, 0.88f, 1f };
+        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, inspectPoseA, inspectPoseB, inspectPoseC, liftPose, idlePose };
         for (int i = 0; i < times.Length - 1; i++)
         {
             if (t <= times[i + 1] || i == times.Length - 2)
@@ -209,7 +237,11 @@ public class FirstPersonArm_Script : MonoBehaviour
         go.transform.localScale = size;
         var r = go.GetComponent<MeshRenderer>();
         r.sharedMaterial = armMaterial;
+        // Lit like the rest of the world: receives shadows (so the house blocks the
+        // realtime sun indoors) and uses light probes when the scene has them.
+        // It does not cast shadows, so it never darkens the view.
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        r.receiveShadows = false;
+        r.receiveShadows = true;
+        r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.BlendProbes;
     }
 }

@@ -34,8 +34,21 @@ public class CollectibleHoverOutline_Script : MonoBehaviour
         if (currentOutline != null) currentOutline.SetActive(true);
     }
 
+    PlayerPickup_Script pickup;
+
     Collider FindHovered()
     {
+        // Outline exactly what E would pick up: same aim, same reach, and
+        // nothing while the hand is already busy picking something up.
+        if (pickup == null) pickup = FindFirstObjectByType<PlayerPickup_Script>();
+        if (pickup != null)
+        {
+            if (pickup.IsBusy) return null;
+            var target = pickup.FindTarget();
+            return target != null ? target.GetComponent<Collider>() : null;
+        }
+
+        // Fallback (no pickup in the scene): own centre-screen raycast.
         Camera cam = Camera.main;
         if (cam == null) return null;
 

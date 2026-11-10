@@ -164,8 +164,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3e33263a68c3248479d2368194a5a811, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FirstPersonArm_Script
-  pickupDuration: 1.1
-  grabMoment: 0.45
+  pickupDuration: 2.6
+  grabMoment: 0.2
   shoulder: {fileID: 151581437}
   elbow: {fileID: 1084683176}
   wrist: {fileID: 756697227}
@@ -195,6 +195,24 @@ MonoBehaviour:
     shoulderEuler: {x: 6, y: -10, z: 0}
     elbowBend: 40
     wristEuler: {x: -4, y: 0, z: 0}
+    fingerCurl: 1
+  inspectPoseA:
+    shoulderPos: {x: 0.42, y: -0.7, z: -0.05}
+    shoulderEuler: {x: -4, y: -26, z: 0}
+    elbowBend: 48
+    wristEuler: {x: 50, y: 28, z: 0}
+    fingerCurl: 1
+  inspectPoseB:
+    shoulderPos: {x: 0.42, y: -0.7, z: -0.05}
+    shoulderEuler: {x: -6, y: -26, z: 0}
+    elbowBend: 50
+    wristEuler: {x: 46, y: -32, z: -10}
+    fingerCurl: 1
+  inspectPoseC:
+    shoulderPos: {x: 0.43, y: -0.71, z: -0.05}
+    shoulderEuler: {x: -3, y: -25, z: 0}
+    elbowBend: 46
+    wristEuler: {x: 50, y: 4, z: 4}
     fingerCurl: 1
 --- !u!1 &79665056
 GameObject:
@@ -2839,7 +2857,7 @@ MeshRenderer:
   m_GameObject: {fileID: 818645109}
   m_Enabled: 0
   m_CastShadows: 0
-  m_ReceiveShadows: 0
+  m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -3448,7 +3466,7 @@ MeshRenderer:
   m_GameObject: {fileID: 1107224800}
   m_Enabled: 0
   m_CastShadows: 0
-  m_ReceiveShadows: 0
+  m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -4318,7 +4336,7 @@ MeshRenderer:
   m_GameObject: {fileID: 1428944832}
   m_Enabled: 0
   m_CastShadows: 0
-  m_ReceiveShadows: 0
+  m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -5549,7 +5567,7 @@ MeshRenderer:
   m_GameObject: {fileID: 1680746180}
   m_Enabled: 0
   m_CastShadows: 0
-  m_ReceiveShadows: 0
+  m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -6068,6 +6086,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerPickup_Script
   arm: {fileID: 51876332}
   reach: 8
+  holdOffset: {x: 0, y: -0.06, z: 0.42}
+  holdScale: 0.55
+  holdEuler: {x: 0, y: 180, z: 0}
 --- !u!1 &1928005361
 GameObject:
   m_ObjectHideFlags: 0
@@ -6380,7 +6401,7 @@ MeshRenderer:
   m_GameObject: {fileID: 1990830779}
   m_Enabled: 0
   m_CastShadows: 0
-  m_ReceiveShadows: 0
+  m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -6737,7 +6758,7 @@ PrefabInstance:
     - target: {fileID: 6475765803499553897, guid: 8e421356e5bbe354ca1b34d4e61f7956,
         type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0
+      value: -7.101219
       objectReference: {fileID: 0}
     - target: {fileID: 6475765803499553897, guid: 8e421356e5bbe354ca1b34d4e61f7956,
         type: 3}
@@ -6747,7 +6768,7 @@ PrefabInstance:
     - target: {fileID: 6475765803499553897, guid: 8e421356e5bbe354ca1b34d4e61f7956,
         type: 3}
       propertyPath: m_LocalPosition.z
-      value: -10
+      value: -9.96018
       objectReference: {fileID: 0}
     - target: {fileID: 6475765803499553897, guid: 8e421356e5bbe354ca1b34d4e61f7956,
         type: 3}
