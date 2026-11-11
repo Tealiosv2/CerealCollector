@@ -17,8 +17,8 @@ using UnityEngine;
 public class FirstPersonArm_Script : MonoBehaviour
 {
     [Header("Animation")]
-    public float pickupDuration = 3.3f;   // reach, grab, raise, inspect, lower
-    [Range(0f, 1f)] public float grabMoment = 0.20f;   // normalized time the hand closes
+    public float pickupDuration = 2.2f;   // reach, grab, lift, pull in, lower
+    [Range(0f, 1f)] public float grabMoment = 0.28f;   // normalized time the hand closes
 
     [Header("Joints (created by BuildArm)")]
     public Transform shoulder;
@@ -124,11 +124,12 @@ public class FirstPersonArm_Script : MonoBehaviour
         forearmRoll = -90f,
         thumbCurl = 1f,
     };
-    // Inspect, like a weapon inspect in CS / COD: the grip and the wrist stay
-    // put and the FOREARM turns. A look at the front...
-    public ArmPose inspectPoseA = new ArmPose
+    // Pulled in toward the player: the box is a little closer, front facing
+    // the camera, held briefly. Same wrist bend and forearm roll as the lift,
+    // so nothing twists.
+    public ArmPose pullInPose = new ArmPose
     {
-        shoulderPos = new Vector3(0.6f, -0.72f, 0.25f),
+        shoulderPos = new Vector3(0.6f, -0.6f, 0.14f),
         shoulderEuler = new Vector3(10f, -18f, 0f),
         elbowBend = 95f,
         wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
@@ -136,27 +137,16 @@ public class FirstPersonArm_Script : MonoBehaviour
         forearmRoll = -90f,
         thumbCurl = 1f,
     };
-    // ...the forearm rolls 180 degrees (same wrist bend) to show the back; the
-    // arm moves left and out so the box stays centred as it swings around...
-    public ArmPose inspectPoseB = new ArmPose
+    // Stowed: the same grip lowered straight down out of view, so the exit is
+    // a clean drop rather than a turn. (The arm snaps to the hidden rest pose after.)
+    public ArmPose stowPose = new ArmPose
     {
-        shoulderPos = new Vector3(-0.22f, -0.7f, 0.62f),
-        shoulderEuler = new Vector3(10f, -2f, 0f),
+        shoulderPos = new Vector3(0.62f, -1.85f, 0.05f),
+        shoulderEuler = new Vector3(12f, -18f, 0f),
         elbowBend = 95f,
         wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
         fingerCurl = 1f,
-        forearmRoll = 90f,
-        thumbCurl = 1f,
-    };
-    // ...and a small settle on the back before lowering.
-    public ArmPose inspectPoseC = new ArmPose
-    {
-        shoulderPos = new Vector3(-0.22f, -0.7f, 0.62f),
-        shoulderEuler = new Vector3(8f, 0f, 0f),
-        elbowBend = 95f,
-        wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
-        fingerCurl = 1f,
-        forearmRoll = 98f,
+        forearmRoll = -90f,
         thumbCurl = 1f,
     };
 
@@ -198,17 +188,18 @@ public class FirstPersonArm_Script : MonoBehaviour
             yield return null;
         }
         IsBusy = false;
+        ApplyPose(idlePose);          // back to the hidden rest pose for next time
         SetVisible(false);
         OnPickupFinished?.Invoke();
     }
 
     // ─── Animation ───────────────────────────────────────────────────────────
     // Keyframes over normalized time:
-    // rest -> reach -> grab -> lift -> inspect (turn, turn back, settle) -> lift -> rest.
+    // rest -> reach -> grab -> lift -> pull in (hold) -> stow straight down.
     public void SampleAt(float t)
     {
-        float[] times = { 0f, 0.14f, grabMoment, 0.30f, 0.42f, 0.60f, 0.76f, 0.88f, 1f };
-        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, inspectPoseA, inspectPoseB, inspectPoseC, liftPose, idlePose };
+        float[] times = { 0f, 0.18f, grabMoment, 0.46f, 0.62f, 0.80f, 1f };
+        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, pullInPose, pullInPose, stowPose };
         for (int i = 0; i < times.Length - 1; i++)
         {
             if (t <= times[i + 1] || i == times.Length - 2)
