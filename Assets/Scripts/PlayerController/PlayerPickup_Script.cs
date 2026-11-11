@@ -13,13 +13,19 @@ public class PlayerPickup_Script : MonoBehaviour
     public FirstPersonArm_Script arm;
     public float reach = 8f;                 // world units (the house is ~3x real scale)
 
-    [Header("Holding")]
-    [Tooltip("Where the box's centre sits, in the wrist's local space (in front of the palm).")]
-    public Vector3 holdOffset = new Vector3(0f, 0.02f, 0.40f);
+    [Header("Holding (side grip)")]
     [Tooltip("Box scale while held, so it reads as in-hand rather than filling the view.")]
-    public float holdScale = 0.45f;
-    [Tooltip("Box rotation in the hand (wrist space). 180 on Y turns the box front toward the player.")]
-    public Vector3 holdEuler = new Vector3(0f, 180f, 0f);
+    public float holdScale = 0.28f;
+    [Tooltip("Palm surface the box's side panel rests against, in wrist space (palm faces -Y).")]
+    public float palmY = -0.050f;
+    [Tooltip("Gap between the palm and the box side.")]
+    public float palmGap = 0.006f;
+    [Tooltip("Wrist-space Z of the box's bottom: near the heel of the hand, so the fingers run up its side.")]
+    public float bottomZ = 0.02f;
+
+    // Kept for reference by older tuning scripts; the side grip computes these.
+    [HideInInspector] public Vector3 holdOffset = new Vector3(0f, 0.02f, 0.40f);
+    [HideInInspector] public Vector3 holdEuler = new Vector3(0f, 180f, 0f);
 
     Player_InputActions inputActions;
     InputAction interact;
@@ -99,17 +105,45 @@ public class PlayerPickup_Script : MonoBehaviour
 
         Vector3 worldScale = root.lossyScale;
         root.SetParent(arm.wrist, true);
-        // Turn the box so its front art (frontInRoot) faces the player, whichever way
-        // the prefab was authored, then apply the hold rotation.
-        Vector3 front = Vector3.ProjectOnPlane(held.frontInRoot, Vector3.up);
-        float frontYaw = front.sqrMagnitude > 1e-6f ? Vector3.SignedAngle(Vector3.forward, front, Vector3.up) : 0f;
-        root.localRotation = Quaternion.Euler(holdEuler) * Quaternion.Euler(0f, -frontYaw, 0f);
         root.localScale = Vector3.Scale(worldScale * holdScale, Inv(arm.wrist.lossyScale));
+        root.localRotation = SideGripRotation(held);
+        PlaceInPalm(root);
+    }
 
-        // Put the centre of the box (not its pivot) at the hold point.
-        var r = root.GetComponentInChildren<Renderer>();
-        Vector3 holdPoint = arm.wrist.TransformPoint(holdOffset);
-        root.position += holdPoint - (r != null ? r.bounds.center : root.position);
+    // Side grip, in wrist space (fingers +Z, palm -Y, thumb -X), like holding a
+    // box up to look at it: palm flat on its side panel, fingers running up
+    // that side, thumb on the front edge.
+    //   box up    -> along the fingers (+Z)
+    //   box front -> thumb side (-X): faces the player when the forearm rolls the thumb toward the camera
+    //   box side panel (its width axis) -> against the palm (-Y)
+    // Turning the forearm then shows the front and the back of the box.
+    // frontInRoot says which side of this prefab has the front art.
+    public static Quaternion SideGripRotation(Collectible_Script box)
+    {
+        Vector3 front = Vector3.ProjectOnPlane(box.frontInRoot, Vector3.up);
+        float frontYaw = front.sqrMagnitude > 1e-6f ? Vector3.SignedAngle(Vector3.forward, front, Vector3.up) : 0f;
+        return Quaternion.LookRotation(Vector3.left, Vector3.forward) * Quaternion.Euler(0f, -frontYaw, 0f);
+    }
+
+    // Slide the (already rotated) box so its side panel rests just under the palm,
+    // centred across the hand, with its bottom near the heel of the hand.
+    public void PlaceInPalm(Transform root)
+    {
+        var mf = root.GetComponentInChildren<MeshFilter>();
+        if (mf == null || mf.sharedMesh == null) return;
+        Bounds mb = mf.sharedMesh.bounds;
+        Vector3 min = Vector3.positiveInfinity, max = Vector3.negativeInfinity;
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = mb.center + Vector3.Scale(mb.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+            Vector3 w = arm.wrist.InverseTransformPoint(mf.transform.TransformPoint(corner));
+            min = Vector3.Min(min, w); max = Vector3.Max(max, w);
+        }
+        Vector3 shift = new Vector3(
+            -(min.x + max.x) * 0.5f,                 // centred across the hand
+            (palmY - palmGap) - max.y,               // side panel just under the palm
+            bottomZ - min.z);                        // bottom near the heel of the hand
+        root.localPosition += shift;
     }
 
     // Arm is back at rest (off-screen): the box is collected.

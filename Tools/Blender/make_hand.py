@@ -9,9 +9,11 @@
 #   FP_Hand_Fingers    origin at the knuckles (four fingers as one mitten block, first segment)
 #   FP_Hand_FingerTips origin at the middle joint (second segment, child of Fingers)
 #   FP_Hand_Thumb    origin at the thumb base
+#   FP_Arm_Fore, FP_Arm_Upper  skin forearm and upper arm (no sleeve), pivots at elbow and shoulder
 # Units match the house (~3x real scale) and the placeholder arm's hand.
 # Orientation: fingers point forward (-Y in Blender = +Z in Unity), palm down,
-# thumb on the left (a right hand seen from behind). One shared skin texture,
+# thumb on the left (a right hand seen from behind; Blender +X is that side when
+# looking down -Y). One shared skin texture,
 # painted procedurally, half-res pixelated, no baked dither.
 
 import bpy, bmesh, math, sys, os
@@ -131,8 +133,10 @@ fingertips = make_object("FP_Hand_FingerTips", bm, (0.0, J, -0.004))
 
 # ─── Thumb: separate, from the side of the palm near the wrist ───────────────
 bm = bmesh.new()
-TB = Vector((-0.112, -0.050, -0.012))                 # thumb base (left side of the palm)
-tdir = Vector((-0.30, -1.0, -0.22)).normalized()      # forward, out to the left, a bit down
+TB = Vector((0.112, -0.050, -0.012))                  # thumb base. Looking down the arm (-Y), +X is
+                                                       # the LEFT side, where a right hand's thumb is (palm down).
+                                                       # (Verified in Unity: thumb lands on the left.)
+tdir = Vector((0.30, -1.0, -0.22)).normalized()       # forward, out to the left, a bit down
 tu = tdir.cross(Vector((0, 0, 1))).normalized()
 tv = tu.cross(tdir).normalized()
 thumb_rings = []
@@ -152,7 +156,46 @@ for child, parent in ((fingers, palm), (thumb, palm), (fingertips, fingers)):
     child.location = pivot - parent.location if parent is not palm else pivot
 view_layer.update()
 
-HAND = [palm, fingers, fingertips, thumb]
+
+# ─── Arm: forearm and upper arm, skin (no sleeve), low poly ──────────────────
+# Laid out as a straight continuation of the hand along +Y (toward the
+# shoulder), so the skin texture paints them in place. Each piece pivots at
+# its upper joint, matching the first-person arm rig:
+#   FP_Arm_Fore   pivot at the elbow, runs to the wrist (0.72 long)
+#   FP_Arm_Upper  pivot at the shoulder, runs to the elbow (0.78 long)
+FORE_LEN, UPPER_LEN = 0.72, 0.78
+ELBOW_Y, SHOULDER_Y = FORE_LEN, FORE_LEN + UPPER_LEN
+
+def arm_section(y, half_w, half_h, cz=0.0, n=SIDES):
+    """Slightly flattened oval cross-section (wider than tall), at Y=y."""
+    pts = []
+    for k in range(n):
+        a = 2 * math.pi * k / n + math.pi / n
+        pts.append(Vector((math.cos(a) * half_w, y, cz + math.sin(a) * half_h)))
+    return pts
+
+bm = bmesh.new()
+loft(bm, [
+    arm_section(0.035, 0.084, 0.074),               # wrist (tucks into the hand's wrist cuff)
+    arm_section(0.200, 0.092, 0.080),
+    arm_section(0.420, 0.112, 0.094, cz=0.004),     # forearm muscle
+    arm_section(0.620, 0.104, 0.092, cz=0.002),
+    arm_section(ELBOW_Y + 0.030, 0.100, 0.096),     # just past the elbow (overlaps the upper arm)
+], cap_start=True, cap_end=True)
+for v in bm.verts:                                  # bony point of the elbow (back/top side)
+    if v.co.y > ELBOW_Y - 0.06 and v.co.z > 0.05:
+        v.co.z += 0.018 * math.exp(-((v.co.x) / 0.05) ** 2)
+fore = make_object("FP_Arm_Fore", bm, (0.0, ELBOW_Y, 0.0))
+
+bm = bmesh.new()
+loft(bm, [
+    arm_section(ELBOW_Y - 0.020, 0.098, 0.094),     # elbow end (overlaps the forearm)
+    arm_section(ELBOW_Y + 0.250, 0.112, 0.104, cz=-0.004),   # biceps
+    arm_section(ELBOW_Y + 0.520, 0.122, 0.112),
+    arm_section(SHOULDER_Y + 0.040, 0.128, 0.118),  # shoulder end (hidden at the screen edge)
+], cap_start=True, cap_end=True)
+upper = make_object("FP_Arm_Upper", bm, (0.0, SHOULDER_Y, 0.0))
+HAND = [palm, fingers, fingertips, thumb, fore, upper]
 tris = {o.name: sum(len(p.vertices) - 2 for p in o.data.polygons) for o in HAND}
 print("HAND_TRIS", tris, "total", sum(tris.values()))
 
@@ -180,7 +223,7 @@ bpy.ops.object.mode_set(mode="OBJECT")
 # ─── Skin texture (painted from 3D position, PSX resolution) ─────────────────
 TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(OUT_FBX)), "Textures")
 os.makedirs(TEX_DIR, exist_ok=True)
-RES, PIXELATE = 256, 2
+RES, PIXELATE = 512, 2          # hand + whole arm share it: 256px after pixelating
 
 def rasterize(objs, res):
     pos = np.zeros((res, res, 3), np.float32)
@@ -303,6 +346,12 @@ mix(skin, (0.50, 0.32, 0.28), 0.40 * gauss(Y + 0.17 - 0.10 * X, 0.004) * under *
 mix(skin, (0.55, 0.36, 0.32), 0.40 * gauss(Y - 0.005, 0.005) * (Y > -0.02) * (Y < 0.03))
 # Faint veins on the back of the hand.
 mix(skin, (0.55, 0.52, 0.62), 0.25 * (np.abs(np.sin(X * 90 + Y * 25)) < 0.08) * top * (Y > -0.20) * (Y < -0.02))
+# Arm: reddish, wrinkled elbow (back), soft crease inside the elbow, faint veins
+# on the inner forearm.
+mix(skin, (0.80, 0.52, 0.46), 0.35 * gauss(Y - ELBOW_Y, 0.05) * top)
+mix(skin, (0.55, 0.36, 0.32), 0.35 * (np.abs(np.sin((Y - ELBOW_Y) * 260)) < 0.25) * gauss(Y - ELBOW_Y, 0.035) * top)
+mix(skin, (0.60, 0.40, 0.36), 0.30 * gauss(Y - ELBOW_Y, 0.012) * under)
+mix(skin, (0.55, 0.55, 0.68), 0.22 * (np.abs(np.sin(X * 70 + Y * 9)) < 0.07) * under * (Y > 0.10) * (Y < 0.60))
 skin = dilate(skin, hmask)
 img = save_png(skin, "FP_Hand")
 
@@ -364,4 +413,10 @@ if PREVIEW_DIR:
     fingertips.rotation_euler = (math.radians(70), 0, 0)    # and again halfway along
     view_layer.update()
     views("hand_grip_")
+    centre = Vector((0.0, 0.45, 0.0))
+    fingers.rotation_euler = (0, 0, 0); fingertips.rotation_euler = (0, 0, 0)
+    view_layer.update()
+    shoot("arm_top", (0, 0.0001, 4), scale=2.2, up="Y")
+    shoot("arm_side", (-4, 0, 0), scale=2.2, up="Z")
+    shoot("arm_3q", (-2.5, 1.5, 2.0), scale=2.2, up="Z")
     print("PREVIEWS", PREVIEW_DIR)
