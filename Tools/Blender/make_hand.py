@@ -83,13 +83,19 @@ def make_object(name, bm, origin):
 # ─── Palm with wrist cuff (origin at the wrist) ──────────────────────────────
 bm = bmesh.new()
 palm_rings = [
-    section(0.0,  0.07, 0.000, 0.085, 0.075),                      # forearm stub (inside the sleeve/forearm)
-    section(0.0,  0.00, 0.000, 0.092, 0.060, flat_bottom=0.2),     # wrist
-    section(0.0, -0.10, 0.006, 0.128, 0.050, flat_bottom=0.40, arch=0.10),   # heel of the hand
+    section(0.0,  0.07, 0.000, 0.080, 0.068),                      # stub, tucked inside the forearm
+    section(0.0,  0.00, 0.000, 0.090, 0.070, flat_bottom=0.15),    # wrist: same thickness as the forearm (no step)
+    section(0.0, -0.10, 0.006, 0.128, 0.052, flat_bottom=0.40, arch=0.20),   # heel of the hand (back slightly domed)
     section(0.0, -PALM_LEN + 0.015, 0.004, 0.129, 0.041, flat_bottom=0.35, arch=0.12),
     section(0.0, -PALM_LEN - 0.010, 0.003, 0.118, 0.033, flat_bottom=0.30, arch=0.10),   # rounded knuckle edge
 ]
 loft(bm, palm_rings, cap_start=True, cap_end=True)
+# Thumb muscle: a soft pad on the thumb side of the palm, where the thumb joins.
+for v in bm.verts:
+    w = math.exp(-((v.co.x - 0.10) / 0.045) ** 2 - ((v.co.y + 0.07) / 0.06) ** 2)
+    if v.co.z < 0.02:
+        v.co.x += 0.014 * w
+        v.co.z -= 0.010 * w
 palm = make_object("FP_Hand_Palm", bm, (0.0, 0.0, 0.0))
 
 # ─── Fingers: one mitten block in two segments, rounded tips ─────────────────
@@ -143,11 +149,11 @@ tdir = Vector((0.30, -1.0, -0.22)).normalized()       # forward, out to the left
 tu = tdir.cross(Vector((0, 0, 1))).normalized()
 tv = tu.cross(tdir).normalized()
 thumb_rings = []
-for t, r in ((0.000, 0.042), (0.085, 0.036), (0.165, 0.026)):
+for t, r in ((0.000, 0.050), (0.085, 0.040), (0.160, 0.030), (0.188, 0.020)):   # thick base, rounded tip
     c = TB + tdir * t
     thumb_rings.append([c + (tu * math.cos(a) * r + tv * math.sin(a) * r * 0.8)
                         for a in (2 * math.pi * k / 6 for k in range(6))])
-loft(bm, thumb_rings, cap_start=True, cap_end=False, tip=TB + tdir * 0.195)
+loft(bm, thumb_rings, cap_start=True, cap_end=False, tip=TB + tdir * 0.200)
 thumb = make_object("FP_Hand_Thumb", bm, tuple(TB))
 
 # Fingers and thumb hang off the palm, so animating the palm moves the lot.
@@ -179,7 +185,7 @@ def arm_section(y, half_w, half_h, cz=0.0, n=SIDES):
 
 bm = bmesh.new()
 loft(bm, [
-    arm_section(0.035, 0.084, 0.074),               # wrist (tucks into the hand's wrist cuff)
+    arm_section(0.035, 0.088, 0.072),               # wrist: meets the hand's wrist flush
     arm_section(0.200, 0.092, 0.080),
     arm_section(0.420, 0.112, 0.094, cz=0.004),     # forearm muscle
     arm_section(0.620, 0.104, 0.092, cz=0.002),

@@ -38,8 +38,8 @@ public class FirstPersonArm_Script : MonoBehaviour
 
     public float middleBend = 25f;      // ...and press onto the back face
     [Tooltip("Where the thumb points when gripping, in wrist space (fingers +Z, palm -Y, thumb side -X): "
-           + "up the front of the box and slightly into it.")]
-    public Vector3 thumbGripDirection = new Vector3(-0.62f, -0.45f, 0.60f);
+           + "flat across the front of the box: up and in over the box face, a little toward the camera so it rests on the surface.")]
+    public Vector3 thumbGripDirection = new Vector3(-0.45f, -0.88f, -0.05f);
     Quaternion thumbRest = Quaternion.identity, thumbGrip = Quaternion.identity;
 
     [Header("Look")]
