@@ -156,7 +156,7 @@ tdir = Vector((0.30, -1.0, -0.22)).normalized()       # forward, out to the left
 tu = tdir.cross(Vector((0, 0, 1))).normalized()
 tv = tu.cross(tdir).normalized()
 thumb_rings = []
-for t, r in ((0.000, 0.036), (0.085, 0.034), (0.160, 0.028), (0.188, 0.019)):   # slim base (sits in the hand), rounded tip
+for t, r in ((-0.055, 0.036), (0.000, 0.042), (0.085, 0.034), (0.160, 0.028), (0.188, 0.019)):   # root buried in the palm (no gap when it turns), slim base, rounded tip
     c = TB + tdir * t
     thumb_rings.append([c + (tu * math.cos(a) * r + tv * math.sin(a) * r * 0.8)
                         for a in (2 * math.pi * k / 6 for k in range(6))])
