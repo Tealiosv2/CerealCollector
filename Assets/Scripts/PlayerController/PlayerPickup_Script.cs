@@ -15,11 +15,14 @@ public class PlayerPickup_Script : MonoBehaviour
 
     [Header("Holding (side grip)")]
     [Tooltip("Box scale while held, so it reads as in-hand rather than filling the view.")]
-    public float holdScale = 0.28f;
+    public float holdScale = 0.36f;
     [Tooltip("Palm surface the box's side panel rests against, in wrist space (palm faces -Y).")]
-    public float palmY = -0.050f;
+    public float palmY = -0.040f;
     [Tooltip("Gap between the palm and the box side.")]
-    public float palmGap = 0.006f;
+    public float palmGap = 0.0f;
+    [Tooltip("Where the box centre sits across the hand (wrist X; the thumb side is -X = up the box). "
+           + "Negative moves the box up so the hand grips it mid-height.")]
+    public float boxCenterAcrossHand = -0.09f;
     [Tooltip("Wrist-space Z of the box's back face: at the knuckles, so the fingers wrap around onto the back and the front sits against the thumb.")]
     public float backEdgeZ = 0.27f;
 
@@ -141,7 +144,7 @@ public class PlayerPickup_Script : MonoBehaviour
             min = Vector3.Min(min, w); max = Vector3.Max(max, w);
         }
         Vector3 shift = new Vector3(
-            -(min.x + max.x) * 0.5f,                 // centred across the hand
+            boxCenterAcrossHand - (min.x + max.x) * 0.5f,   // hand at mid-height on the box
             (palmY - palmGap) - max.y,               // side panel just under the palm
             backEdgeZ - max.z);                      // back face at the middle finger joint
         root.localPosition += shift;
