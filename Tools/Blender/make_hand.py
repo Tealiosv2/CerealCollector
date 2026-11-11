@@ -33,14 +33,14 @@ PALM_LEN = 0.26          # wrist -> knuckles
 FINGER_LEN = 0.23        # knuckles -> fingertips
 SIDES = 8                # vertices around each cross-section (low poly)
 
-def section(cx, y, cz, half_w, half_h, n=SIDES, flat_bottom=0.0, arch=0.0):
+def section(cx, y, cz, half_w, half_h, n=SIDES, flat_bottom=0.0, arch=0.0, px=0.55):
     """Rounded-rectangle (superellipse) cross-section in the XZ plane at Y=y.
     flat_bottom flattens the palm side, arch lifts the middle of the top."""
     pts = []
     for k in range(n):
         a = 2 * math.pi * k / n + math.pi / n
         c, s = math.cos(a), math.sin(a)
-        x = math.copysign(abs(c) ** 0.55, c) * half_w
+        x = math.copysign(abs(c) ** px, c) * half_w
         z = math.copysign(abs(s) ** 0.75, s) * half_h
         if z < 0:
             z *= (1.0 - flat_bottom)
@@ -83,19 +83,22 @@ def make_object(name, bm, origin):
 # ─── Palm with wrist cuff (origin at the wrist) ──────────────────────────────
 bm = bmesh.new()
 palm_rings = [
-    section(0.0,  0.07, 0.000, 0.080, 0.068),                      # stub, tucked inside the forearm
-    section(0.0,  0.00, 0.000, 0.090, 0.070, flat_bottom=0.15),    # wrist: same thickness as the forearm (no step)
-    section(0.0, -0.10, 0.006, 0.128, 0.052, flat_bottom=0.40, arch=0.20),   # heel of the hand (back slightly domed)
-    section(0.0, -PALM_LEN + 0.015, 0.004, 0.129, 0.041, flat_bottom=0.35, arch=0.12),
+    section(0.0,  0.03, 0.000, 0.058, 0.048, px=0.9),               # short, small stub: stays inside the forearm even with the wrist bent 90 deg
+    section(0.0,  0.00, 0.000, 0.084, 0.062, flat_bottom=0.15, px=0.8),   # wrist: rounded, just inside the forearm
+    section(0.0, -0.10, 0.004, 0.112, 0.046, flat_bottom=0.40, arch=0.15, px=0.8),   # heel of the hand (back slightly domed)
+    section(0.0, -PALM_LEN + 0.015, 0.004, 0.124, 0.040, flat_bottom=0.35, arch=0.12, px=0.65),
     section(0.0, -PALM_LEN - 0.010, 0.003, 0.118, 0.033, flat_bottom=0.30, arch=0.10),   # rounded knuckle edge
 ]
 loft(bm, palm_rings, cap_start=True, cap_end=True)
-# Thumb muscle: a soft pad on the thumb side of the palm, where the thumb joins.
+# Thumb side (+X) pulled in along the whole palm (most at the heel) so the
+# palm edge the thumb comes out of is slim. When gripping a box from the side
+# this edge faces the player and must not read as a block above the wrist.
 for v in bm.verts:
-    w = math.exp(-((v.co.x - 0.10) / 0.045) ** 2 - ((v.co.y + 0.07) / 0.06) ** 2)
-    if v.co.z < 0.02:
-        v.co.x += 0.014 * w
-        v.co.z -= 0.010 * w
+    if v.co.x > 0.03:
+        w = 0.6 + 0.4 * math.exp(-((v.co.y + 0.11) / 0.10) ** 2)
+        f = min(1.0, (v.co.x - 0.03) / 0.07)
+        v.co.x -= 0.032 * w * f
+        v.co.z *= 1.0 - 0.22 * w * f
 palm = make_object("FP_Hand_Palm", bm, (0.0, 0.0, 0.0))
 
 # ─── Fingers: one mitten block in two segments, rounded tips ─────────────────
@@ -112,6 +115,10 @@ def shape_fingers(bm):
         if v.co.y < K - 0.15:
             x = v.co.x / 0.12
             v.co.y -= 0.022 * (1 - min(1.0, abs(x - 0.05)) ** 2) * min(1.0, (K - 0.15 - v.co.y) / 0.08)
+    # Index side (+X) pulled in to meet the slimmer thumb side of the palm.
+    for v in bm.verts:
+        if v.co.x > 0.03:
+            v.co.x -= 0.019 * min(1.0, (v.co.x - 0.03) / 0.07)
     # Shallow grooves along the top between fingers (suggests four fingers).
     for gx in (-0.062, 0.0, 0.062):
         for v in bm.verts:
@@ -142,14 +149,14 @@ fingertips = make_object("FP_Hand_FingerTips", bm, (0.0, J, -0.004))
 
 # ─── Thumb: separate, from the side of the palm near the wrist ───────────────
 bm = bmesh.new()
-TB = Vector((0.112, -0.050, -0.012))                  # thumb base. Looking down the arm (-Y), +X is
+TB = Vector((0.090, -0.050, -0.010))                  # thumb base. Looking down the arm (-Y), +X is
                                                        # the LEFT side, where a right hand's thumb is (palm down).
                                                        # (Verified in Unity: thumb lands on the left.)
 tdir = Vector((0.30, -1.0, -0.22)).normalized()       # forward, out to the left, a bit down
 tu = tdir.cross(Vector((0, 0, 1))).normalized()
 tv = tu.cross(tdir).normalized()
 thumb_rings = []
-for t, r in ((0.000, 0.050), (0.085, 0.040), (0.160, 0.030), (0.188, 0.020)):   # thick base, rounded tip
+for t, r in ((0.000, 0.036), (0.085, 0.034), (0.160, 0.028), (0.188, 0.019)):   # slim base (sits in the hand), rounded tip
     c = TB + tdir * t
     thumb_rings.append([c + (tu * math.cos(a) * r + tv * math.sin(a) * r * 0.8)
                         for a in (2 * math.pi * k / 6 for k in range(6))])
