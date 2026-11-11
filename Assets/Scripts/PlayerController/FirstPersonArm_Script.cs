@@ -26,6 +26,7 @@ public class FirstPersonArm_Script : MonoBehaviour
     public Transform wrist;
     public Transform fingers;       // first finger segment (bends at the knuckles)
     public Transform fingerTips;    // second segment (bends halfway along); only with the hand model
+    public Transform thumb;         // thumb piece; only with the hand model
 
     [Header("Hand")]
     [Tooltip("Low-poly hand model (FP_Hand.fbx: palm root with FP_Hand_Fingers > FP_Hand_FingerTips and FP_Hand_Thumb). "
@@ -33,9 +34,13 @@ public class FirstPersonArm_Script : MonoBehaviour
     public GameObject handModel;
     [Tooltip("Curl axis in the finger pieces' local space and its sign (curl toward the palm).")]
     public Vector3 curlAxis = Vector3.right;
-    public float knuckleBend = 15f;     // degrees at full curl: fingers stay fairly flat along the box side...
+    public float knuckleBend = 80f;     // degrees at full curl: fingers wrap around the box's back edge at the knuckles...
 
-    public float middleBend = 85f;      // ...and hook around its far edge at the middle joint
+    public float middleBend = 25f;      // ...and press onto the back face
+    [Tooltip("Where the thumb points when gripping, in wrist space (fingers +Z, palm -Y, thumb side -X): "
+           + "up the front of the box and slightly into it.")]
+    public Vector3 thumbGripDirection = new Vector3(-0.62f, -0.45f, 0.60f);
+    Quaternion thumbRest = Quaternion.identity, thumbGrip = Quaternion.identity;
 
     [Header("Look")]
     public Material armMaterial;
@@ -55,6 +60,7 @@ public class FirstPersonArm_Script : MonoBehaviour
         public Vector3 wristEuler;
         public float fingerCurl;        // 0 open, 1 closed fist
         public float forearmRoll;       // degrees about the forearm's own axis (inspect turns happen here, not at the wrist)
+        public float thumbCurl;         // 0 rest, 1 thumb pressed on the front of the box
 
         public static ArmPose Lerp(ArmPose a, ArmPose b, float t)
         {
@@ -66,6 +72,7 @@ public class FirstPersonArm_Script : MonoBehaviour
                 wristEuler = Quaternion.Slerp(Quaternion.Euler(a.wristEuler), Quaternion.Euler(b.wristEuler), t).eulerAngles,
                 fingerCurl = Mathf.Lerp(a.fingerCurl, b.fingerCurl, t),
                 forearmRoll = Mathf.Lerp(a.forearmRoll, b.forearmRoll, t),   // plain lerp: the turn direction is explicit
+                thumbCurl = Mathf.Lerp(a.thumbCurl, b.thumbCurl, t),
             };
         }
     }
@@ -79,74 +86,85 @@ public class FirstPersonArm_Script : MonoBehaviour
         wristEuler = new Vector3(0f, 0f, 0f),
         fingerCurl = 0.25f,
     };
-    // Reaching forward and down toward the box, hand open, forearm starting to
-    // turn so the hand meets the box's side.
+    // Poses below were solved for a side grip like holding a cereal box by its
+    // edge: palm on the narrow side panel, thumb on the front, fingers wrapped
+    // around onto the back. The wrist angles put the hand at that orientation in
+    // view (thumb up, fingers pointing into the scene behind the box).
+    //
+    // Reaching forward and down toward the box, hand open, forearm starting to turn.
     public ArmPose reachPose = new ArmPose
     {
-        shoulderPos = new Vector3(0.45f, -0.55f, 0.15f),
-        shoulderEuler = new Vector3(6f, -22f, 0f),
-        elbowBend = 4f,
-        wristEuler = new Vector3(12f, 0f, 0f),
-        fingerCurl = 0.0f,
+        shoulderPos = new Vector3(0.45f, -0.57f, 0.15f),
+        shoulderEuler = new Vector3(8f, -22f, 0f),
+        elbowBend = 6f,
+        wristEuler = new Vector3(28.931f, 41.539f, 315.401f),
+        fingerCurl = 0f,
         forearmRoll = -40f,
+        thumbCurl = 0f,
     };
-    // Hand on the side of the box (palm on its side panel, fingers up along it).
+    // Hand closes on the side of the box: thumb onto the front, fingers around the back.
     public ArmPose grabPose = new ArmPose
     {
         shoulderPos = new Vector3(0.45f, -0.57f, 0.15f),
         shoulderEuler = new Vector3(8f, -22f, 0f),
         elbowBend = 6f,
-        wristEuler = new Vector3(10f, 0f, 0f),
-        fingerCurl = 0.15f,
-        forearmRoll = -90f,
+        wristEuler = new Vector3(14.838f, 47.337f, 330.758f),
+        fingerCurl = 1f,
+        forearmRoll = -60f,
+        thumbCurl = 1f,
     };
-    // Brought up in front of the view, forearm nearly upright: the front faces the player.
+    // Forearm comes up from below, wrist bent: the box is upright, front facing the player.
     public ArmPose liftPose = new ArmPose
     {
-        shoulderPos = new Vector3(0.55f, -1.02f, 0.20f),
-        shoulderEuler = new Vector3(12f, -20f, 0f),
-        elbowBend = 95f,
-        wristEuler = new Vector3(0f, 0f, 0f),
-        fingerCurl = 0.15f,
+        shoulderPos = new Vector3(0.58f, -0.82f, 0.2f),
+        shoulderEuler = new Vector3(12f, -18f, 0f),
+        elbowBend = 90f,
+        wristEuler = new Vector3(357.102f, 93.02f, 359.223f),
+        fingerCurl = 1f,
         forearmRoll = -90f,
+        thumbCurl = 1f,
     };
-    // Inspect, like a weapon inspect in CS / COD: the hand keeps its grip and
-    // the FOREARM turns. First a look at the front...
+    // Inspect, like a weapon inspect in CS / COD: the grip and the wrist stay
+    // put and the FOREARM turns. A look at the front...
     public ArmPose inspectPoseA = new ArmPose
     {
-        shoulderPos = new Vector3(0.55f, -1.00f, 0.28f),
-        shoulderEuler = new Vector3(10f, -22f, 0f),
-        elbowBend = 100f,
-        wristEuler = new Vector3(-5f, 0f, 0f),
-        fingerCurl = 0.15f,
-        forearmRoll = -95f,
+        shoulderPos = new Vector3(0.6f, -0.72f, 0.25f),
+        shoulderEuler = new Vector3(10f, -18f, 0f),
+        elbowBend = 95f,
+        wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
+        fingerCurl = 1f,
+        forearmRoll = -90f,
+        thumbCurl = 1f,
     };
-    // ...then the forearm rolls ~180 degrees to show the back (the arm shifts
-    // left to keep the box near the centre as it swings across)...
+    // ...the forearm rolls 180 degrees (same wrist bend) to show the back; the
+    // arm moves left and out so the box stays centred as it swings around...
     public ArmPose inspectPoseB = new ArmPose
     {
-        shoulderPos = new Vector3(0.12f, -1.00f, 0.28f),
-        shoulderEuler = new Vector3(10f, -8f, 0f),
-        elbowBend = 100f,
-        wristEuler = new Vector3(-5f, 0f, 0f),
-        fingerCurl = 0.15f,
-        forearmRoll = 85f,
+        shoulderPos = new Vector3(-0.22f, -0.7f, 0.62f),
+        shoulderEuler = new Vector3(10f, -2f, 0f),
+        elbowBend = 95f,
+        wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
+        fingerCurl = 1f,
+        forearmRoll = 90f,
+        thumbCurl = 1f,
     };
     // ...and a small settle on the back before lowering.
     public ArmPose inspectPoseC = new ArmPose
     {
-        shoulderPos = new Vector3(0.12f, -1.00f, 0.28f),
-        shoulderEuler = new Vector3(8f, -6f, 0f),
-        elbowBend = 98f,
-        wristEuler = new Vector3(-8f, 0f, 0f),
-        fingerCurl = 0.15f,
-        forearmRoll = 95f,
+        shoulderPos = new Vector3(-0.22f, -0.7f, 0.62f),
+        shoulderEuler = new Vector3(8f, 0f, 0f),
+        elbowBend = 95f,
+        wristEuler = new Vector3(357.011f, 90.007f, 359.738f),
+        fingerCurl = 1f,
+        forearmRoll = 98f,
+        thumbCurl = 1f,
     };
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
     void Awake()
     {
         if (shoulder == null) BuildArm();
+        else ComputeThumbGrip();
         ApplyPose(idlePose);
         SetVisible(false);
     }
@@ -216,6 +234,7 @@ public class FirstPersonArm_Script : MonoBehaviour
             // Hand model: two bends (knuckles, then halfway along the fingers).
             fingers.localRotation = Quaternion.AngleAxis(p.fingerCurl * knuckleBend, curlAxis);
             fingerTips.localRotation = Quaternion.AngleAxis(p.fingerCurl * middleBend, curlAxis);
+            if (thumb != null) thumb.localRotation = Quaternion.Slerp(thumbRest, thumbGrip, p.thumbCurl);
         }
         else
         {
@@ -260,6 +279,8 @@ public class FirstPersonArm_Script : MonoBehaviour
             }
             fingers = FindDeep(wrist, "FP_Hand_Fingers");
             fingerTips = FindDeep(wrist, "FP_Hand_FingerTips");
+            thumb = FindDeep(wrist, "FP_Hand_Thumb");
+            ComputeThumbGrip();
             foreach (var r in GetComponentsInChildren<MeshRenderer>(true)) SetupRenderer(r);
             return;
         }
@@ -271,6 +292,23 @@ public class FirstPersonArm_Script : MonoBehaviour
         fingers = Joint("Fingers", wrist, new Vector3(0f, 0f, 0.24f));
         fingerTips = null;
         Block("FingerBlock", fingers, new Vector3(0.25f, 0.07f, 0.20f), new Vector3(0f, 0f, 0.10f));
+    }
+
+    // The thumb's grip rotation: turn its rest direction (pivot -> middle of the
+    // thumb mesh, in wrist space) onto thumbGripDirection. Rest is the import pose.
+    void ComputeThumbGrip()
+    {
+        if (thumb == null || wrist == null) return;
+        var mf = thumb.GetComponent<MeshFilter>();
+        if (mf == null || mf.sharedMesh == null) return;
+        thumbRest = Quaternion.identity;
+        Quaternion keep = thumb.localRotation;
+        thumb.localRotation = thumbRest;
+        Vector3 restDir = wrist.InverseTransformDirection(thumb.TransformDirection(mf.sharedMesh.bounds.center)).normalized;
+        Quaternion turn = Quaternion.FromToRotation(restDir, thumbGripDirection.normalized);   // in wrist space
+        Quaternion inWrist = Quaternion.Inverse(wrist.rotation) * thumb.rotation;
+        thumbGrip = Quaternion.Inverse(thumb.parent.rotation) * (wrist.rotation * turn * inWrist);
+        thumb.localRotation = keep;
     }
 
     static void Attach(Transform piece, Transform joint)

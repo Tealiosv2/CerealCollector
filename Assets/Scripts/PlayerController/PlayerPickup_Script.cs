@@ -20,8 +20,8 @@ public class PlayerPickup_Script : MonoBehaviour
     public float palmY = -0.050f;
     [Tooltip("Gap between the palm and the box side.")]
     public float palmGap = 0.006f;
-    [Tooltip("Wrist-space Z of the box's bottom: near the heel of the hand, so the fingers run up its side.")]
-    public float bottomZ = 0.02f;
+    [Tooltip("Wrist-space Z of the box's back face: at the knuckles, so the fingers wrap around onto the back and the front sits against the thumb.")]
+    public float backEdgeZ = 0.27f;
 
     // Kept for reference by older tuning scripts; the side grip computes these.
     [HideInInspector] public Vector3 holdOffset = new Vector3(0f, 0.02f, 0.40f);
@@ -110,23 +110,24 @@ public class PlayerPickup_Script : MonoBehaviour
         PlaceInPalm(root);
     }
 
-    // Side grip, in wrist space (fingers +Z, palm -Y, thumb -X), like holding a
-    // box up to look at it: palm flat on its side panel, fingers running up
-    // that side, thumb on the front edge.
-    //   box up    -> along the fingers (+Z)
-    //   box front -> thumb side (-X): faces the player when the forearm rolls the thumb toward the camera
+    // Side grip, as you would hold a cereal box by its edge (wrist space: fingers
+    // +Z, palm -Y, thumb -X): palm on the narrow side panel, thumb on the front,
+    // fingers running across to the back edge and hooking around it.
+    //   box up    -> thumb side (-X)
+    //   box front -> back toward the wrist (-Z): faces the player in the front view
     //   box side panel (its width axis) -> against the palm (-Y)
-    // Turning the forearm then shows the front and the back of the box.
+    // The arm bends the wrist so the thumb points up, then turning the forearm
+    // shows the front and the back.
     // frontInRoot says which side of this prefab has the front art.
     public static Quaternion SideGripRotation(Collectible_Script box)
     {
         Vector3 front = Vector3.ProjectOnPlane(box.frontInRoot, Vector3.up);
         float frontYaw = front.sqrMagnitude > 1e-6f ? Vector3.SignedAngle(Vector3.forward, front, Vector3.up) : 0f;
-        return Quaternion.LookRotation(Vector3.left, Vector3.forward) * Quaternion.Euler(0f, -frontYaw, 0f);
+        return Quaternion.LookRotation(Vector3.back, Vector3.left) * Quaternion.Euler(0f, -frontYaw, 0f);
     }
 
     // Slide the (already rotated) box so its side panel rests just under the palm,
-    // centred across the hand, with its bottom near the heel of the hand.
+    // centred across the hand, with its back face at the middle finger joint.
     public void PlaceInPalm(Transform root)
     {
         var mf = root.GetComponentInChildren<MeshFilter>();
@@ -142,7 +143,7 @@ public class PlayerPickup_Script : MonoBehaviour
         Vector3 shift = new Vector3(
             -(min.x + max.x) * 0.5f,                 // centred across the hand
             (palmY - palmGap) - max.y,               // side panel just under the palm
-            bottomZ - min.z);                        // bottom near the heel of the hand
+            backEdgeZ - max.z);                      // back face at the middle finger joint
         root.localPosition += shift;
     }
 

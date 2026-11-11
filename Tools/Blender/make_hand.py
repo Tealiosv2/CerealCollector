@@ -86,7 +86,8 @@ palm_rings = [
     section(0.0,  0.07, 0.000, 0.085, 0.075),                      # forearm stub (inside the sleeve/forearm)
     section(0.0,  0.00, 0.000, 0.092, 0.060, flat_bottom=0.2),     # wrist
     section(0.0, -0.10, 0.006, 0.128, 0.050, flat_bottom=0.40, arch=0.10),   # heel of the hand
-    section(0.0, -PALM_LEN, 0.004, 0.128, 0.040, flat_bottom=0.35, arch=0.12),   # knuckles
+    section(0.0, -PALM_LEN + 0.015, 0.004, 0.129, 0.041, flat_bottom=0.35, arch=0.12),
+    section(0.0, -PALM_LEN - 0.010, 0.003, 0.118, 0.033, flat_bottom=0.30, arch=0.10),   # rounded knuckle edge
 ]
 loft(bm, palm_rings, cap_start=True, cap_end=True)
 palm = make_object("FP_Hand_Palm", bm, (0.0, 0.0, 0.0))
@@ -114,6 +115,7 @@ def shape_fingers(bm):
 
 bm = bmesh.new()
 loft(bm, [
+    section(0.0, K + 0.030, 0.002, 0.100, 0.026, flat_bottom=0.30),               # tucked inside the palm: a bent knuckle shows skin, not a gap
     section(0.0, K + 0.000, 0.004, 0.126, 0.036, flat_bottom=0.30, arch=0.12),
     section(0.0, K - 0.060, 0.000, 0.124, 0.034, flat_bottom=0.26, arch=0.08),
     section(0.0, J - 0.010, -0.005, 0.121, 0.031, flat_bottom=0.22, arch=0.06),   # just past the joint
@@ -123,6 +125,7 @@ fingers = make_object("FP_Hand_Fingers", bm, (0.0, K, 0.004))
 
 bm = bmesh.new()
 loft(bm, [
+    section(0.0, J + 0.035, -0.003, 0.100, 0.024, flat_bottom=0.22),             # tucked inside the first segment
     section(0.0, J + 0.010, -0.003, 0.122, 0.032, flat_bottom=0.22, arch=0.06),   # just before the joint
     section(0.0, K - 0.175, -0.013, 0.113, 0.028, flat_bottom=0.15),
     section(0.0, K - FINGER_LEN + 0.020, -0.020, 0.104, 0.024),
