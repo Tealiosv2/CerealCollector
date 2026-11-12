@@ -8,6 +8,11 @@ public class CollectibleHoverOutline_Script : MonoBehaviour
     public float outlineScale = 0.06f;
     public Color outlineColor = Color.white;
 
+    // The box currently outlined (crosshair on it and in pickup range), or null.
+    // PlayerPickup_Script only picks up this box.
+    public static CollectibleHoverOutline_Script Instance { get; private set; }
+    public static Collectible_Script CurrentTarget { get; private set; }
+
     Material outlineMat;
     GameObject currentOutline;
     Collider currentCollider;
@@ -21,21 +26,40 @@ public class CollectibleHoverOutline_Script : MonoBehaviour
         go.AddComponent<CollectibleHoverOutline_Script>();
     }
 
+    void Awake() => Instance = this;
+    void OnDestroy() { if (Instance == this) { Instance = null; CurrentTarget = null; } }
+
     void Update()
     {
         Collider hovered = FindHovered();
+        CurrentTarget = (hovered != null && currentOutline != null && hovered == currentCollider && currentOutline.activeSelf)
+            ? hovered.GetComponent<Collectible_Script>() : null;
         if (hovered == currentCollider) return;
 
         if (currentOutline != null) currentOutline.SetActive(false);
         currentCollider = hovered;
-        if (hovered == null) { currentOutline = null; return; }
+        if (hovered == null) { currentOutline = null; CurrentTarget = null; return; }
 
         currentOutline = GetOrCreateOutline(hovered);
         if (currentOutline != null) currentOutline.SetActive(true);
+        CurrentTarget = currentOutline != null ? hovered.GetComponent<Collectible_Script>() : null;
     }
+
+    PlayerPickup_Script pickup;
 
     Collider FindHovered()
     {
+        // Outline exactly what E would pick up: same aim, same reach, and
+        // nothing while the hand is already busy picking something up.
+        if (pickup == null) pickup = FindFirstObjectByType<PlayerPickup_Script>();
+        if (pickup != null)
+        {
+            if (pickup.IsBusy) return null;
+            var target = pickup.FindTarget();
+            return target != null ? target.GetComponent<Collider>() : null;
+        }
+
+        // Fallback (no pickup in the scene): own centre-screen raycast.
         Camera cam = Camera.main;
         if (cam == null) return null;
 
