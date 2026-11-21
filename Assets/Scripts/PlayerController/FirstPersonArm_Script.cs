@@ -17,8 +17,10 @@ using UnityEngine;
 public class FirstPersonArm_Script : MonoBehaviour
 {
     [Header("Animation")]
-    public float pickupDuration = 2.2f;   // reach, grab, lift, pull in, lower
+    public float pickupDuration = 2.2f;   // reach, grab, lift, pull in, turn to face, lower
     [Range(0f, 1f)] public float grabMoment = 0.28f;   // normalized time the hand closes
+    [Tooltip("Once the box is pulled in, the forearm turns this many degrees so the box's front swings round to face the player.")]
+    public float presentTurn = 25f;
 
     [Header("Joints (created by BuildArm)")]
     public Transform shoulder;
@@ -195,11 +197,15 @@ public class FirstPersonArm_Script : MonoBehaviour
 
     // ─── Animation ───────────────────────────────────────────────────────────
     // Keyframes over normalized time:
-    // rest -> reach -> grab -> lift -> pull in (hold) -> stow straight down.
+    // rest -> reach -> grab -> lift -> pull in -> turn the box to face the
+    // player (short hold) -> stow straight down, still turned.
     public void SampleAt(float t)
     {
-        float[] times = { 0f, 0.18f, grabMoment, 0.46f, 0.62f, 0.80f, 1f };
-        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, pullInPose, pullInPose, stowPose };
+        ArmPose present = pullInPose, stow = stowPose;
+        present.forearmRoll += presentTurn;
+        stow.forearmRoll += presentTurn;
+        float[] times = { 0f, 0.18f, grabMoment, 0.46f, 0.60f, 0.74f, 0.82f, 1f };
+        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, pullInPose, present, present, stow };
         for (int i = 0; i < times.Length - 1; i++)
         {
             if (t <= times[i + 1] || i == times.Length - 2)
