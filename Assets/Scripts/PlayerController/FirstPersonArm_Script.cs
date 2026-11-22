@@ -17,10 +17,19 @@ using UnityEngine;
 public class FirstPersonArm_Script : MonoBehaviour
 {
     [Header("Animation")]
-    public float pickupDuration = 2.2f;   // reach, grab, lift, pull in, turn to face, lower
+    public float pickupDuration = 2.2f;   // reach, grab, hold, lift, pull in, turn to face, lower
     [Range(0f, 1f)] public float grabMoment = 0.28f;   // normalized time the hand closes
     [Tooltip("Once the box is pulled in, the forearm turns this many degrees so the box's front swings round to face the player.")]
     public float presentTurn = 25f;
+    [Tooltip("How long the closed hand stays on the box before lifting it, as a fraction of the animation.")]
+    [Range(0f, 0.15f)] public float grabHold = 0.05f;
+
+    // Aim of the reach and grab, so the hand closes where the box actually is
+    // on screen: the arm swings about the shoulder by aimRotation and slides
+    // along its length by aimPush (both in this object's space). Set per
+    // pick-up by PlayPickup; fades out as the box is lifted.
+    [NonSerialized] public Quaternion aimRotation = Quaternion.identity;
+    [NonSerialized] public Vector3 aimPush;
 
     [Header("Joints (created by BuildArm)")]
     public Transform shoulder;
@@ -167,9 +176,14 @@ public class FirstPersonArm_Script : MonoBehaviour
         foreach (var r in GetComponentsInChildren<Renderer>(true)) r.enabled = visible;
     }
 
-    public void PlayPickup()
+    public void PlayPickup() => PlayPickup(Quaternion.identity, Vector3.zero);
+
+    public void PlayPickup(Quaternion aim, Vector3 push)
     {
-        if (!IsBusy && isActiveAndEnabled) StartCoroutine(PickupRoutine());
+        if (IsBusy || !isActiveAndEnabled) return;
+        aimRotation = aim;
+        aimPush = push;
+        StartCoroutine(PickupRoutine());
     }
 
     IEnumerator PickupRoutine()
@@ -197,15 +211,17 @@ public class FirstPersonArm_Script : MonoBehaviour
 
     // ─── Animation ───────────────────────────────────────────────────────────
     // Keyframes over normalized time:
-    // rest -> reach -> grab -> lift -> pull in -> turn the box to face the
-    // player (short hold) -> stow straight down, still turned.
+    // rest -> reach out to the box -> close the hand on it (short hold while
+    // the box settles into the grip) -> lift -> pull in -> turn the box to
+    // face the player (short hold) -> stow straight down, still turned.
     public void SampleAt(float t)
     {
         ArmPose present = pullInPose, stow = stowPose;
         present.forearmRoll += presentTurn;
         stow.forearmRoll += presentTurn;
-        float[] times = { 0f, 0.18f, grabMoment, 0.46f, 0.60f, 0.74f, 0.82f, 1f };
-        ArmPose[] poses = { idlePose, reachPose, grabPose, liftPose, pullInPose, present, present, stow };
+        float[] times = { 0f, 0.18f, grabMoment, grabMoment + grabHold, 0.49f, 0.62f, 0.76f, 0.83f, 1f };
+        ArmPose[] poses = { idlePose, reachPose, grabPose, grabPose, liftPose, pullInPose, present, present, stow };
+        float[] aim = { 0f, 1f, 1f, 1f, 0f, 0f, 0f, 0f, 0f };   // how much of the aim each keyframe carries
         for (int i = 0; i < times.Length - 1; i++)
         {
             if (t <= times[i + 1] || i == times.Length - 2)
@@ -213,6 +229,9 @@ public class FirstPersonArm_Script : MonoBehaviour
                 float k = Mathf.InverseLerp(times[i], times[i + 1], t);
                 k = k * k * (3f - 2f * k);                      // smoothstep ease in/out
                 ApplyPose(ArmPose.Lerp(poses[i], poses[i + 1], k));
+                float w = Mathf.Lerp(aim[i], aim[i + 1], k);
+                shoulder.localRotation = Quaternion.Slerp(Quaternion.identity, aimRotation, w) * shoulder.localRotation;
+                shoulder.localPosition += aimPush * w;
                 return;
             }
         }

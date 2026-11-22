@@ -2,16 +2,33 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 // Press E (the "Interact" action) while looking at a collectible to pick it
-// up. The first-person arm plays its pick-up animation; when the hand closes
-// (FirstPersonArm_Script.OnGrab) the cereal box cuts into the hand and rides
-// along as the arm lifts and drops out of view, and it is collected when the
-// arm finishes (OnPickupFinished).
+// up. The first-person arm reaches out to where the box is on screen; when
+// the hand closes (FirstPersonArm_Script.OnGrab) the box slides the short
+// way into the grip, with a rattle of cereal, and rides along as the arm
+// lifts and drops out of view. It is collected when the arm finishes
+// (OnPickupFinished).
 // Lives on the player camera; aims from the centre of the screen, the same
 // way CollectibleHoverOutline_Script picks what to outline.
 public class PlayerPickup_Script : MonoBehaviour
 {
     public FirstPersonArm_Script arm;
-    public float reach = 8f;                 // world units (the house is ~3x real scale)
+    [Tooltip("How close the player has to be, in world units (the house is ~3x real scale). "
+           + "Short enough that the hand can be seen to reach the box: see Aim.")]
+    public float reach = 5.5f;
+
+    [Header("Reaching for the box")]
+    [Tooltip("Seconds the box takes to slide from where it stood into the closed hand.")]
+    public float grabBlend = 0.10f;
+    [Tooltip("How far in front of the camera the closed hand can meet the box (camera Z of the held box), nearest and farthest.")]
+    public Vector2 handDepthRange = new Vector2(1.0f, 2.0f);
+    [Tooltip("How far the arm may slide along its own length, either way, to meet the box.")]
+    public float maxArmSlide = 0.6f;
+
+    [Header("Sound")]
+    [Tooltip("Cardboard box of cereal being grabbed (Tools/Audio/make_cereal_pickup.py). Starts when the hand closes.")]
+    public AudioClip pickupSound;
+    [Range(0f, 1f)] public float pickupVolume = 0.8f;
+    AudioSource audioSource;
 
     [Header("Holding (side grip)")]
     [Tooltip("Box scale while held, so it reads as in-hand rather than filling the view.")]
@@ -35,6 +52,12 @@ public class PlayerPickup_Script : MonoBehaviour
     Camera cam;
     Collectible_Script pending;   // targeted, waiting for the hand to close
     Collectible_Script held;      // in the hand
+
+    // The box sliding from where it stood into the grip.
+    Transform blendRoot;
+    float blendT;
+    Vector3 blendFromPos, blendFromScale, blendToPos, blendToScale;
+    Quaternion blendFromRot, blendToRot;
 
     public bool IsBusy => (arm != null && arm.IsBusy) || held != null || pending != null;
 
@@ -81,7 +104,8 @@ public class PlayerPickup_Script : MonoBehaviour
         // Only pick up what is actually highlighted (crosshair on it, in range).
         if (CollectibleHoverOutline_Script.Instance != null && CollectibleHoverOutline_Script.CurrentTarget != target) return false;
         pending = target;
-        arm.PlayPickup();
+        Aim(target, out Quaternion aim, out Vector3 push);
+        arm.PlayPickup(aim, push);
         return true;
     }
 
@@ -102,15 +126,98 @@ public class PlayerPickup_Script : MonoBehaviour
         held = pending;
         pending = null;
 
-        Transform root = held.transform.parent != null ? held.transform.parent : held.transform;
+        Transform root = RootOf(held);
         foreach (var spin in root.GetComponentsInChildren<CollectibleRotator_Script>()) spin.enabled = false;
         foreach (var col in root.GetComponentsInChildren<Collider>()) col.enabled = false;
 
+        // Work out the grip, then slide the box into it from where it stood
+        // (LateUpdate) rather than cutting straight there.
+        blendFromPos = root.position;
+        blendFromRot = root.rotation;
+        Hold(root, held);
+        blendToPos = root.localPosition;
+        blendToRot = root.localRotation;
+        blendToScale = root.localScale;
+        blendFromScale = blendToScale / holdScale;
+        blendRoot = root;
+        blendT = 0f;
+        ApplyBlend(0f);
+
+        if (pickupSound != null)
+        {
+            if (audioSource == null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 0f;     // it is in the player's own hand
+            }
+            audioSource.pitch = Random.Range(0.94f, 1.06f);   // no two boxes rattle quite alike
+            audioSource.PlayOneShot(pickupSound, pickupVolume);
+        }
+    }
+
+    // After the arm has posed for this frame.
+    void LateUpdate()
+    {
+        if (blendRoot == null) return;
+        blendT += Time.deltaTime / Mathf.Max(grabBlend, 1e-4f);
+        ApplyBlend(Mathf.Clamp01(blendT));
+        if (blendT >= 1f) blendRoot = null;
+    }
+
+    void ApplyBlend(float k)
+    {
+        k = k * k * (3f - 2f * k);
+        blendRoot.position = Vector3.Lerp(blendFromPos, arm.wrist.TransformPoint(blendToPos), k);
+        blendRoot.rotation = Quaternion.Slerp(blendFromRot, arm.wrist.rotation * blendToRot, k);
+        blendRoot.localScale = Vector3.Lerp(blendFromScale, blendToScale, k);
+    }
+
+    static Transform RootOf(Collectible_Script box) => box.transform.parent != null ? box.transform.parent : box.transform;
+
+    // Put the box in the hand: side grip, scaled down, resting in the palm.
+    void Hold(Transform root, Collectible_Script box)
+    {
         Vector3 worldScale = root.lossyScale;
         root.SetParent(arm.wrist, true);
         root.localScale = Vector3.Scale(worldScale * holdScale, Inv(arm.wrist.lossyScale));
-        root.localRotation = SideGripRotation(held);
+        root.localRotation = SideGripRotation(box);
         PlaceInPalm(root);
+    }
+
+    // Aim the reach so the hand closes on the box where the player sees it.
+    // The held box is holdScale of its real size, so it looks exactly as big
+    // as the real one when it is at holdScale of the distance on the same line
+    // of sight: that is where the hand goes, as far as the arm allows
+    // (handDepthRange). Then grabbing barely changes the picture. The arm gets
+    // there by swinging about the shoulder (aim) and sliding along its own
+    // length (push), so it still comes up from the bottom of the view.
+    public void Aim(Collectible_Script box, out Quaternion aim, out Vector3 push)
+    {
+        aim = Quaternion.identity; push = Vector3.zero;
+        Transform root = RootOf(box), armRoot = arm.transform;
+        var mf = root.GetComponentInChildren<MeshFilter>();
+        if (mf == null || mf.sharedMesh == null || arm.wrist == null) return;
+        Vector3 World() => mf.transform.TransformPoint(mf.sharedMesh.bounds.center);
+        Vector3 boxNow = cam.transform.InverseTransformPoint(World());
+        if (boxNow.z <= 0.01f) return;
+
+        // Dry run: hold the box at the unaimed grab pose, note where it sits, put everything back.
+        Transform parent = root.parent;
+        Vector3 p = root.localPosition, s = root.localScale;
+        Quaternion r = root.localRotation;
+        arm.ApplyPose(arm.grabPose);
+        Hold(root, box);
+        Vector3 held = armRoot.InverseTransformPoint(World());
+        root.SetParent(parent, false);
+        root.localPosition = p; root.localRotation = r; root.localScale = s;
+        arm.ApplyPose(arm.idlePose);
+
+        float depth = Mathf.Clamp(boxNow.z * holdScale, handDepthRange.x, handDepthRange.y);
+        Vector3 want = armRoot.InverseTransformPoint(cam.transform.TransformPoint(boxNow * (depth / boxNow.z)));
+        Vector3 from = held - arm.grabPose.shoulderPos, to = want - arm.grabPose.shoulderPos;
+        aim = Quaternion.FromToRotation(from, to);
+        push = to.normalized * Mathf.Clamp(to.magnitude - from.magnitude, -maxArmSlide, maxArmSlide);
     }
 
     // Side grip, as you would hold a cereal box by its edge (wrist space: fingers

@@ -167,6 +167,7 @@ MonoBehaviour:
   pickupDuration: 2.2
   grabMoment: 0.28
   presentTurn: 25
+  grabHold: 0.05
   shoulder: {fileID: 1370865366}
   elbow: {fileID: 1434884033}
   wrist: {fileID: 1935313395}
@@ -6434,7 +6435,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerPickup_Script
   arm: {fileID: 51876332}
-  reach: 8
+  reach: 5.5
+  grabBlend: 0.1
+  handDepthRange: {x: 1, y: 2}
+  pickupSound: {fileID: 8300000, guid: ec7e961efb2bcca4192dc0d78c17747b, type: 3}
+  pickupVolume: 0.8
   holdScale: 0.36
   palmY: -0.04
   palmGap: 0
